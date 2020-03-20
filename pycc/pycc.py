@@ -16,7 +16,9 @@ def call_hoek(method, data):
 
 
 def decode_tx(tx_bin):
-    return call_hoek("decodeTx", binascii.hexlify(tx_bin))
+    return call_hoek("decodeTx", json.dumps({
+        "hex": binascii.hexlify(tx_bin)
+    }))
 
 
 def encode_tx(tx_dict):
