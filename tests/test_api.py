@@ -21,6 +21,3 @@ def test_parse_cc_tx():
     assert tx.txs_in[0].script == b'\x07\xaf\x05\x80\x03\xd3]\xb7'
     assert tx.txs_in[0].previous_index == 0
 
-
-
-
