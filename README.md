@@ -44,6 +44,7 @@ PYCC conceptualizes transactions as function calls, that have many parameters an
 The number of inputs and outputs may vary, but the structure is static. When a variable number of inputs
 is required, that is encoded as a list of inputs, so the structure does not change.
 
+![txs](assets/txs.svg)
 
 # Setup
 
