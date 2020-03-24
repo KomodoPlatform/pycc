@@ -2,27 +2,56 @@
 from pycc import *
 
 
+def validate_faucet_drip(ctx, tx_data):
+    # Is there anything to validate?
+    pass
+
+
 schema = {
     "faucet": {
         "create": {
             "inputs": [
-                P2PKH()
+                Input(P2PKH())
             ],
             "outputs": [
-                CCEval("faucet.transfer", 0),
-            ]
+                Output(CCEval("faucet.drip", 0)),
+            ],
         },
-        "transfer": {
+        "drip": {
             "inputs": [
-                # OneOf([Ref("faucet.create", 0), Ref("faucet.transfer", 0)])
-                Ref("faucet.create", 0)
+                Input(Ref("faucet.create", 0))
             ],
             "outputs": [
-                CCEval("faucet.transfer", 0),
-                P2PKH()
-            ]
-        }
+                Output(CCEval("faucet.drip", 0)), # , InputAmount(0).subtract(0.1)),
+                Output(P2PKH())
+            ],
+            "validate": validate_faucet_drip
+        },
     }
 }
 
-app = CCApp(schema)
+
+# asset_schema = {
+#     "asset": {
+#         "create": {
+#             "inputs": [
+#                 Input(P2PKH())
+#             ],
+#             "outputs": [
+#                 Output(CCEval("asset.transfer", 0))
+#             ]
+#         },
+#         "transfer": {
+#             "inputs": [
+#                 Inputs(CCEval("asset.transfer", 0), min=1, max=5),
+#                 Input(P2PKH())
+#             ],
+#             "outputs": [
+#                 Outputs(CCEval("asset.transfer", 0)),
+#                 Output(P2PKH())
+#             ],
+#             "validate": validate_asset_transfer
+#         }
+#     }
+# }
+
