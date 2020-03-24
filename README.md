@@ -46,9 +46,18 @@ is required, that is encoded as a list of inputs, so the structure does not chan
 
 ![txs](assets/txs.svg)
 
-# Setup
+## Setup
+
+Install [hoek](https://github.com/ssadler/hoek)
 
 ```shell
 virtualenv -p python3 .env
 .env/bin/activate
+pip install -r requirements_test.txt
+```
+
+To run tests:
+
+```
+pytest
 ```
