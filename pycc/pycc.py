@@ -109,6 +109,23 @@ class CCApp:
 
         return txdata
 
+    def construct_tx(self, name, params):
+        parts = name.split('.')
+        tpl = self.schema[parts[0]][parts[1]]
+
+        out = {
+            "inputs": [],
+            "outputs": []
+        }
+
+        for (inp, param) in zip(tpl['inputs'], params['inputs']):
+            out['inputs'] += inp.construct(param)
+        for (out, param) in tpl['outputs']):
+            out['outputs'] += out.construct(param)
+
+        return out
+
+
 
 class EvalContext(namedtuple("EvalContext", 'code,schema,params,chain')):
     pass
