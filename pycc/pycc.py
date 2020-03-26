@@ -2,7 +2,6 @@
 import binascii
 import io
 import subprocess
-import base64
 import json
 import copy
 from collections import namedtuple
@@ -14,30 +13,40 @@ def call_hoek(method, data):
     r = p.wait()
     if r != 0:
         raise IOError("Hoek returned error with args: ", args)
-    return p.stdout.read()
+    return json.loads(p.stdout.read())
 
 
-def decode_tx(tx_bin):
+def decode_tx(tx_hex):
     return call_hoek("decodeTx", {
-        "hex": binascii.hexlify(tx_bin)
+        "hex": tx_hex
     })
 
 
 def encode_tx(tx_dict):
     return call_hoek('encodeTx', tx_dict)
 
+def sign_tx(tx_dict, privKeys):
+    return call_hoek('signTx', {
+        "tx": tx_dict,
+        "privateKeys": privKeys
+    })
+
+def get_txid(tx_hex):
+    return call_hoek('getTxid', {"hex": tx_hex})
 
 def py_to_hex(data):
-    return base64.b16encode(json.dumps(data, sort_keys=True))
+    return hex_encode(json.dumps(data, sort_keys=True))
 
+def encode_condition(fulfillment):
+    return call_hoek('encodeCondition', fulfillment)
 
 def hex_encode(data):
     if hasattr(data, 'encode'):
         data = data.encode()
-    return base64.b16encode(data)
+    return binascii.hexlify(data).decode()
 
 def hex_decode(data):
-    return base64.b16decode(data)
+    return binascii.unhexlify(data)
 
 def hex2py(hex_data):
     return json.loads(hex_decode(hex_data))
@@ -74,17 +83,15 @@ class CCApp:
         self.schema = schema
 
     def __call__(self, *args, **kwargs):
-        try:
-            tx = decode_tx(tx_bin)
-            self._cc_eval(*args, **kwargs)
-        except AssertionError as e:
-            return str(e)
+        return self.cc_eval(*args, **kwargs)
 
-    def _cc_eval(self, chain, tx, n_in, eval_prefix):
+    def cc_eval(self, chain, tx_in, n_in, eval_prefix):
+        tx = decode_tx(tx_in['hex'])
         params = get_opret(tx["outputs"].pop())
         ctx = EvalContext(eval_prefix, self.schema, params, chain)
         node = get_node(self.schema, params)
-        txdata = {"inputs":[], "outputs":[]}
+        txdata = {"txid": tx_in['txid'], "inputs":[], "outputs":[]}
+
         for vin in node['inputs']:
             txdata['inputs'].append(vin.consume_inputs(ctx, tx['inputs']))
 
@@ -163,17 +170,17 @@ class CCEval(namedtuple("CCEval", 'name,idx')):
     """
     def consume_output(self, ctx, script):
         assert script == {
-            "condition": {
+            "condition": encode_condition({
                 "type": "eval-sha-256",
-                "code": hex_encode(ctx.code).decode()
-            }
+                "code": hex_encode(ctx.code)
+            })
         }
 
     def consume_input(self, ctx, script):
         assert script == {
-            "condition": {
+            "fulfillment": {
                 "type": "eval-sha-256",
-                "code": hex_encode(ctx.code).decode()
+                "code": hex_encode(ctx.code)
             }
         }
 
