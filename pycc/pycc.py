@@ -85,12 +85,14 @@ class CCApp:
     def __call__(self, *args, **kwargs):
         return self.cc_eval(*args, **kwargs)
 
-    def cc_eval(self, chain, tx_in, n_in, eval_prefix):
-        tx = decode_tx(tx_in['hex'])
+    def cc_eval(self, chain, tx_bin, n_in, eval_prefix):
+        tx_hex = hex_encode(tx_bin)
+        tx = decode_tx(tx_hex)
+        txid = get_txid(tx_hex)
         params = get_opret(tx["outputs"].pop())
         ctx = EvalContext(eval_prefix, self.schema, params, chain)
         node = get_node(self.schema, params)
-        txdata = {"txid": tx_in['txid'], "inputs":[], "outputs":[]}
+        txdata = {"txid": txid, "inputs":[], "outputs":[]}
 
         for vin in node['inputs']:
             txdata['inputs'].append(vin.consume_inputs(ctx, tx['inputs']))

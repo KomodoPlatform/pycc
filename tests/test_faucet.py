@@ -89,7 +89,7 @@ drip_tx_encoded = encode_tx(sign_tx(drip_tx, [keypair['wif']]))
 
 
 def test_validate_create():
-    o = app.cc_eval({}, create_tx_encoded, 0, b"_")
+    o = app.cc_eval({}, hex_decode(create_tx_encoded['hex']), 0, b"_")
     assert o == {
         "inputs": [{"address": keypair['addr'], "txid": txid_1, "idx": 0}],
         "outputs": [{"amount": 1000000}],
@@ -98,7 +98,7 @@ def test_validate_create():
 
 
 def test_validate_drip():
-    o = app.cc_eval({}, drip_tx_encoded, 0, b'_')
+    o = app.cc_eval({}, hex_decode(drip_tx_encoded['hex']), 0, b'_')
     assert o == {
         "inputs": [{"idx": 0, "txid": txid_1}],
         "outputs": [{"amount": 999000}, {"amount": 1000, "address": keypair['addr']}],
