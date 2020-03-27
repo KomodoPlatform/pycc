@@ -120,7 +120,8 @@ class CCApp:
 
         for (inp, param) in zip(tpl['inputs'], params['inputs']):
             out['inputs'] += inp.construct(param)
-        for (out, param) in tpl['outputs']):
+
+        for (out, param) in zip(tpl['outputs'], params['inputs']):
             out['outputs'] += out.construct(param)
 
         return out
