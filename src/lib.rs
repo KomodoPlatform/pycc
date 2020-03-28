@@ -2,10 +2,8 @@
 extern crate chain;
 extern crate primitives;
 extern crate serialization;
-extern crate rustc_hex;
 
-//use primitives::{bytes::Bytes};
-use pyo3::{create_exception, prelude::*, wrap_pyfunction};
+use pyo3::{create_exception, prelude::*, types::PyDict, wrap_pyfunction};
 use rustc_hex::FromHex;
 
 #[pyclass]
@@ -27,6 +25,13 @@ impl KomodoTxIn {
     fn script_sig(&self) -> PyResult<&[u8]> {
         Ok(self.vin.script_sig.as_ref())
     }
+
+    fn as_py(&self, py: Python) -> PyResult<PyObject> {
+        let a = PyDict::new(py);
+        a.set_item("previous_output", self.previous_output().unwrap())?;
+        a.set_item("script_sig", self.script_sig().unwrap())?;
+        Ok(a.into())
+    }
 }
 
 #[pyclass]
@@ -44,6 +49,13 @@ impl KomodoTxOut {
     #[getter]
     fn script_pubkey(&self) -> PyResult<&[u8]> {
         Ok(self.vout.script_pubkey.as_ref())
+    }
+
+    fn as_py(&self, py: Python) -> PyResult<PyObject> {
+        let a = PyDict::new(py);
+        a.set_item("value", self.value().unwrap())?;
+        a.set_item("script_pubkey", self.script_pubkey().unwrap())?;
+        Ok(a.into())
     }
 }
 
@@ -90,12 +102,38 @@ impl KomodoTx {
             .map(|vout| KomodoTxOut { vout: vout.clone() })
             .collect())
     }
+
+    fn as_py(&self, py: Python) -> PyResult<PyObject> {
+        let a = PyDict::new(py);
+        a.set_item(
+            "inputs",
+            self.inputs()
+                .unwrap()
+                .iter()
+                .map(|vin| vin.as_py(py).unwrap())
+                .collect::<Vec<PyObject>>(),
+        )?;
+        a.set_item(
+            "outputs",
+            self.outputs()
+                .unwrap()
+                .iter()
+                .map(|vout| vout.as_py(py).unwrap())
+                .collect::<Vec<PyObject>>(),
+        )?;
+        Ok(a.into())
+    }
 }
 
 fn tx_decode(s: &[u8]) -> PyResult<KomodoTx> {
     let t: chain::Transaction = match serialization::deserialize(s) {
         Ok(t) => t,
-        Err(e) => return Err(DecodeError::py_err(format!("Error decoding transaction: {:?}", e)))
+        Err(e) => {
+            return Err(DecodeError::py_err(format!(
+                "Error decoding transaction: {:?}",
+                e
+            )))
+        }
     };
     Ok(KomodoTx { tx: t })
 }
@@ -109,7 +147,7 @@ fn tx_from_bin(s: &[u8]) -> PyResult<KomodoTx> {
 fn tx_from_hex(s: String) -> PyResult<KomodoTx> {
     match s.from_hex::<Vec<u8>>() {
         Ok(s) => tx_decode(&s),
-        Err(e) => return Err(DecodeError::py_err(format!("Invalid hex: {:?}", e)))
+        Err(e) => return Err(DecodeError::py_err(format!("Invalid hex: {:?}", e))),
     }
 }
 
