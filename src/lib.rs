@@ -3,7 +3,7 @@ extern crate chain;
 extern crate primitives;
 extern crate serialization;
 
-use pyo3::{create_exception, prelude::*, types::PyDict, wrap_pyfunction};
+use pyo3::{create_exception, prelude::*, types::PyBytes, types::PyDict, wrap_pyfunction};
 use rustc_hex::FromHex;
 
 #[pyclass]
@@ -14,22 +14,22 @@ struct KomodoTxIn {
 #[pymethods]
 impl KomodoTxIn {
     #[getter]
-    fn previous_output(&self) -> PyResult<(String, u32)> {
-        Ok((
+    fn previous_output(&self) -> (String, u32) {
+        (
             self.vin.previous_output.hash.to_reversed_str(),
             self.vin.previous_output.index,
-        ))
+        )
     }
 
     #[getter]
-    fn script_sig(&self) -> PyResult<&[u8]> {
-        Ok(self.vin.script_sig.as_ref())
+    fn script_sig(&self, py: Python) -> PyObject {
+        PyBytes::new(py, self.vin.script_sig.as_ref()).into()
     }
 
     fn as_py(&self, py: Python) -> PyResult<PyObject> {
         let a = PyDict::new(py);
-        a.set_item("previous_output", self.previous_output().unwrap())?;
-        a.set_item("script_sig", self.script_sig().unwrap())?;
+        a.set_item("previous_output", self.previous_output())?;
+        a.set_item("script_sig", self.script_sig(py))?;
         Ok(a.into())
     }
 }
@@ -42,19 +42,19 @@ struct KomodoTxOut {
 #[pymethods]
 impl KomodoTxOut {
     #[getter]
-    fn value(&self) -> PyResult<u64> {
-        Ok(self.vout.value)
+    fn value(&self) -> u64 {
+        self.vout.value
     }
 
     #[getter]
-    fn script_pubkey(&self) -> PyResult<&[u8]> {
-        Ok(self.vout.script_pubkey.as_ref())
+    fn script_pubkey(&self, py: Python) -> PyObject {
+        PyBytes::new(py, self.vout.script_pubkey.as_ref()).into()
     }
 
     fn as_py(&self, py: Python) -> PyResult<PyObject> {
         let a = PyDict::new(py);
-        a.set_item("value", self.value().unwrap())?;
-        a.set_item("script_pubkey", self.script_pubkey().unwrap())?;
+        a.set_item("value", self.value())?;
+        a.set_item("script_pubkey", self.script_pubkey(py))?;
         Ok(a.into())
     }
 }
@@ -69,38 +69,36 @@ struct KomodoTx {
 #[pymethods]
 impl KomodoTx {
     #[getter]
-    fn txid(&self) -> PyResult<String> {
-        Ok(self.tx.hash().to_reversed_str())
+    fn txid(&self) -> String {
+        self.tx.hash().to_reversed_str()
     }
 
     #[getter]
-    fn version(&self) -> PyResult<i32> {
-        Ok(self.tx.version)
+    fn version(&self) -> i32 {
+        self.tx.version
     }
 
     #[getter]
-    fn lock_time(&self) -> PyResult<u32> {
-        Ok(self.tx.lock_time)
+    fn lock_time(&self) -> u32 {
+        self.tx.lock_time
     }
 
     #[getter]
-    fn inputs(&self) -> PyResult<Vec<KomodoTxIn>> {
-        Ok(self
-            .tx
+    fn inputs(&self) -> Vec<KomodoTxIn> {
+        self.tx
             .inputs
             .iter()
             .map(|vin| KomodoTxIn { vin: vin.clone() })
-            .collect())
+            .collect()
     }
 
     #[getter]
-    fn outputs(&self) -> PyResult<Vec<KomodoTxOut>> {
-        Ok(self
-            .tx
+    fn outputs(&self) -> Vec<KomodoTxOut> {
+        self.tx
             .outputs
             .iter()
             .map(|vout| KomodoTxOut { vout: vout.clone() })
-            .collect())
+            .collect()
     }
 
     fn as_py(&self, py: Python) -> PyResult<PyObject> {
@@ -108,7 +106,6 @@ impl KomodoTx {
         a.set_item(
             "inputs",
             self.inputs()
-                .unwrap()
                 .iter()
                 .map(|vin| vin.as_py(py).unwrap())
                 .collect::<Vec<PyObject>>(),
@@ -116,7 +113,6 @@ impl KomodoTx {
         a.set_item(
             "outputs",
             self.outputs()
-                .unwrap()
                 .iter()
                 .map(|vout| vout.as_py(py).unwrap())
                 .collect::<Vec<PyObject>>(),
@@ -126,16 +122,15 @@ impl KomodoTx {
 }
 
 fn tx_decode(s: &[u8]) -> PyResult<KomodoTx> {
-    let t: chain::Transaction = match serialization::deserialize(s) {
-        Ok(t) => t,
+    match serialization::deserialize(s) {
+        Ok(t) => Ok(KomodoTx { tx: t }),
         Err(e) => {
             return Err(DecodeError::py_err(format!(
                 "Error decoding transaction: {:?}",
                 e
             )))
         }
-    };
-    Ok(KomodoTx { tx: t })
+    }
 }
 
 #[pyfunction]
