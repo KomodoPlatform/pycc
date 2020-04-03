@@ -32,7 +32,7 @@ pub enum Condition {
 
 const PREIMAGE_TYPE_ID: u8 = 0;
 const THRESHOLD_TYPE_ID: u8 = 2;
-const SECP256k1_TYPE_ID: u8 = 5;
+const SECP256K1_TYPE_ID: u8 = 5;
 const EVAL_TYPE_ID: u8 = 15;
 
 impl Condition {
@@ -40,7 +40,7 @@ impl Condition {
         match self {
             Preimage { .. } => PREIMAGE_TYPE_ID,
             Threshold { .. } => THRESHOLD_TYPE_ID,
-            Secp256k1 { .. } => SECP256k1_TYPE_ID,
+            Secp256k1 { .. } => SECP256K1_TYPE_ID,
             Eval { .. } => EVAL_TYPE_ID,
             Anon { type_id, .. } => *type_id,
         }
@@ -81,7 +81,7 @@ impl Condition {
                 let t = BigInt::from_u16(*threshold).unwrap().to_signed_bytes_be();
                 let mut elems = asn_data(&vec![t]);
                 elems.push(asn_choice(1, &asns));
-                hash_asn(&ASN1Block::Sequence(0, (elems)))
+                hash_asn(&ASN1Block::Sequence(0, elems))
             }
             Anon { fingerprint, .. } => fingerprint.clone(),
         }

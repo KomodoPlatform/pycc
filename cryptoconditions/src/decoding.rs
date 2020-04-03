@@ -1,7 +1,7 @@
 use num_bigint::BigInt;
 use num_traits::cast::ToPrimitive;
 use secp256k1::{PublicKey, Signature};
-use simple_asn1::{from_der, to_der, ASN1Block, ASN1Class};
+use simple_asn1::{from_der, ASN1Block, ASN1Class};
 use std::collections::HashSet;
 
 use crate::Condition::*;
