@@ -16,7 +16,8 @@ features = ["extension-module"]
 
 [dependencies]
 chain = { git = "https://github.com/artemii235/parity-bitcoin.git" }
+script = { git = "https://github.com/artemii235/parity-bitcoin.git" }
 primitives = { git = "https://github.com/artemii235/parity-bitcoin.git" }
 serialization = { git = "https://github.com/artemii235/parity-bitcoin.git" }
 rustc-hex = "2"
-
+cryptoconditions = { path = "./cryptoconditions" }

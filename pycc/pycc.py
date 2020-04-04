@@ -6,6 +6,7 @@ import json
 import copy
 from collections import namedtuple
 
+from pycctx import *
 
 def call_hoek(method, data):
     args = ['hoek', method, json.dumps(data)]
@@ -55,27 +56,30 @@ def py2hex(data):
     return hex_encode(json.dumps(data))
 
 
-def get_opret(output):
-    assert output.get('amount') == 0
-    assert 'op_return' in output['script']
-    return hex2py(output['script']['op_return'])
+def get_opret(tx):
+    import pdb; pdb.set_trace()
+    opret = tx.outputs[-1]
+    assert opret.amount == 0
+    data = opret.script.get_opret_data()
+    assert not data is None, "opret not present"
+    return hex2py(data)
 
 
-def get_node_path(opret_data):
+def get_model_path(opret_data):
     assert 'tx' in opret_data
     path = opret_data['tx'].split('.')
     assert len(path) == 2
     return path
 
 
-def get_node(schema, opret):
-    (module_name, node_name) = get_node_path(opret)
+def get_model(schema, opret):
+    (module_name, model_name) = get_model_path(opret)
 
     assert module_name in schema, ("unknown module: %s" % module_name)
     module = schema[module_name]
 
-    assert node_name in module, ("unknown node: %s" % node_name)
-    return module.get(node_name)
+    assert model_name in module, ("unknown tx: %s" % model_name)
+    return module.get(model_name)
 
 
 class CCApp:
@@ -86,26 +90,24 @@ class CCApp:
         return self.cc_eval(*args, **kwargs)
 
     def cc_eval(self, chain, tx_bin, n_in, eval_prefix):
-        tx_hex = hex_encode(tx_bin)
-        tx = decode_tx(tx_hex)
-        txid = get_txid(tx_hex)
-        params = get_opret(tx["outputs"].pop())
+        tx = Tx.from_bin(tx_bin)
+        params = get_opret(tx)
         ctx = EvalContext(eval_prefix, self.schema, params, chain)
-        node = get_node(self.schema, params)
-        txdata = {"txid": txid, "inputs":[], "outputs":[]}
+        model = get_model(self.schema, params)
+        txdata = {"txid": tx.txid, "inputs":[], "outputs":[]}
 
-        for vin in node['inputs']:
+        for vin in model['inputs']:
             txdata['inputs'].append(vin.consume_inputs(ctx, tx['inputs']))
 
         assert not tx['inputs'], "leftover inputs"
 
-        for vout in node['outputs']:
+        for vout in model['outputs']:
             txdata['outputs'].append(vout.consume_outputs(ctx, tx['outputs']))
 
         assert not tx['outputs'], "leftover outputs"
 
-        if 'validate' in node:
-            node['validate'](ctx, txdata)
+        if 'validate' in model:
+            model['validate'](ctx, txdata)
 
         return txdata
 
@@ -143,6 +145,7 @@ class Output:
         r['amount'] = self.amount.consume(ctx, output['amount'])
         return r
 
+
 class Input:
     def __init__(self, script):
         self.script = script
@@ -161,6 +164,10 @@ class P2PKH:
 
     def consume_output(self, ctx, script):
         return {"address": script['address']}
+
+    @staticmethod
+    def script_sig(addr):
+        return ScriptSig.p2pkh_from_addr(addr)
 
 
 class InputAmount:
@@ -183,7 +190,7 @@ class Condition(namedtuple("Condition", 'script')):
 class CCEval(namedtuple("CCEval", 'name,idx')):
     """
     CCEdge is an output that encodes a validation that the spending
-    transaction corresponds to a certain type of node.
+    transaction corresponds to a certain type of model.
 
     It needs to be able to write an eval code that
     will route back to a function. So it needs contextual information.
@@ -220,8 +227,8 @@ class Ref(namedtuple("Ref", "name,idx")):
         path = self.name.split('.')
         assert len(path) == 2
 
-        node = ctx.schema[path[0]][path[1]]
-        return node['outputs'][self.idx].script.consume_input(ctx, script)
+        model = ctx.schema[path[0]][path[1]]
+        return model['outputs'][self.idx].script.consume_input(ctx, script)
 
 
 class OneOf(namedtuple("OneOf", 'inputs')):
