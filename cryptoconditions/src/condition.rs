@@ -1,12 +1,44 @@
 use num_bigint::{BigInt, BigUint};
 use num_traits::cast::FromPrimitive;
-use secp256k1::{PublicKey, Signature};
+use secp256k1::{PublicKey, Signature, SecretKey, Message, sign};
 use simple_asn1::{to_der, ASN1Block, ASN1Class};
 use std::collections::HashSet;
 
 pub use Condition::*;
 
-#[derive(PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Copy)]
+pub enum ConditionType {
+    PreimageType,
+    ThresholdType,
+    Secp256k1Type,
+    EvalType
+}
+
+pub use ConditionType::*;
+
+impl ConditionType {
+    fn id(&self) -> u8 {
+        match self {
+            PreimageType { .. } => 0,
+            ThresholdType { .. } => 2,
+            Secp256k1Type { .. } => 5,
+            EvalType { .. } => 15
+        }
+    }
+    pub fn name(&self) -> String {
+        match self {
+            PreimageType => "preimage-sha-256".into(),
+            ThresholdType => "threshold-sha-256".into(),
+            Secp256k1Type => "secp256k1-sha-256".into(),
+            EvalType => "eval-sha-256".into()
+        }
+    }
+    pub fn has_subtypes(&self) -> bool {
+        *self == ThresholdType
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub enum Condition {
     Threshold {
         threshold: u16,
@@ -23,26 +55,21 @@ pub enum Condition {
         code: Vec<u8>,
     },
     Anon {
-        type_id: u8,
+        cond_type: ConditionType,
         fingerprint: Vec<u8>,
         cost: u64,
         subtypes: HashSet<u8>,
     },
 }
 
-const PREIMAGE_TYPE_ID: u8 = 0;
-const THRESHOLD_TYPE_ID: u8 = 2;
-const SECP256K1_TYPE_ID: u8 = 5;
-const EVAL_TYPE_ID: u8 = 15;
-
 impl Condition {
-    pub fn type_id(&self) -> u8 {
+    pub fn get_type(&self) -> ConditionType {
         match self {
-            Preimage { .. } => PREIMAGE_TYPE_ID,
-            Threshold { .. } => THRESHOLD_TYPE_ID,
-            Secp256k1 { .. } => SECP256K1_TYPE_ID,
-            Eval { .. } => EVAL_TYPE_ID,
-            Anon { type_id, .. } => *type_id,
+            Preimage { .. } => PreimageType,
+            Threshold { .. } => ThresholdType,
+            Secp256k1 { .. } => Secp256k1Type,
+            Eval { .. } => EvalType,
+            Anon { cond_type, .. } => *cond_type,
         }
     }
 
@@ -53,7 +80,7 @@ impl Condition {
         if self.has_subtypes() {
             parts.push(pack_set(self.get_subtypes()));
         }
-        asn_choice(self.type_id(), &asn_data(&parts))
+        asn_choice(self.get_type().id(), &asn_data(&parts))
     }
 
     pub fn encode_condition(&self) -> Vec<u8> {
@@ -107,7 +134,7 @@ impl Condition {
     }
 
     fn has_subtypes(&self) -> bool {
-        return type_id_has_subtypes(self.type_id());
+        return self.get_type().has_subtypes();
     }
 
     fn get_subtypes(&self) -> HashSet<u8> {
@@ -115,12 +142,12 @@ impl Condition {
             Threshold { subconditions, .. } => {
                 let mut set = HashSet::new();
                 for cond in subconditions {
-                    set.insert(cond.type_id());
+                    set.insert(cond.get_type().id());
                     for x in cond.get_subtypes() {
                         set.insert(x);
                     }
                 }
-                set.remove(&self.type_id());
+                set.remove(&self.get_type().id());
                 set
             }
             _ => HashSet::new(),
@@ -130,7 +157,7 @@ impl Condition {
     fn encode_fulfillment_asn(&self) -> R {
         match self {
             Preimage { preimage } => Ok(asn_choice(
-                self.type_id(),
+                self.get_type().id(),
                 &asn_data(&vec![preimage.to_vec()]),
             )),
             Secp256k1 {
@@ -141,9 +168,9 @@ impl Condition {
                     pubkey.serialize_compressed().to_vec(),
                     signature.serialize().to_vec(),
                 ];
-                Ok(asn_choice(self.type_id(), &asn_data(&body)))
+                Ok(asn_choice(self.get_type().id(), &asn_data(&body)))
             }
-            Eval { code } => Ok(asn_choice(self.type_id(), &asn_data(&vec![code.to_vec()]))),
+            Eval { code } => Ok(asn_choice(self.get_type().id(), &asn_data(&vec![code.to_vec()]))),
             Threshold {
                 threshold,
                 subconditions,
@@ -155,10 +182,25 @@ impl Condition {
     pub fn encode_fulfillment(&self) -> Result<Vec<u8>, String> {
         Ok(encode_asn(&self.encode_fulfillment_asn()?))
     }
-}
 
-pub fn type_id_has_subtypes(tid: u8) -> bool {
-    tid == 2
+    pub fn is_fulfilled(&self) -> bool {
+        unimplemented!()
+    }
+
+    pub fn sign_secp256k1(&mut self, secret: &SecretKey, message: &Message) -> Result<(), secp256k1::Error> {
+        match self {
+            Secp256k1 { pubkey, ref mut signature  } => {
+                if *pubkey == PublicKey::from_secret_key(secret) {
+                    *signature = Some(sign(message, secret)?.0);
+                }
+            },
+            Threshold { ref mut subconditions, .. } => {
+                for c in subconditions.iter_mut() { c.sign_secp256k1(secret, message)?; }
+            }
+            _ => { }
+        };
+        Ok(())
+    }
 }
 
 type R = Result<ASN1Block, String>;

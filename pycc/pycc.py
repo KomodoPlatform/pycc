@@ -90,11 +90,11 @@ class CCApp:
         return self.cc_eval(*args, **kwargs)
 
     def cc_eval(self, chain, tx_bin, n_in, eval_prefix):
-        tx = Tx.from_bin(tx_bin)
+        tx = Tx.decode_bin(tx_bin)
         params = get_opret(tx)
         ctx = EvalContext(eval_prefix, self.schema, params, chain)
         model = get_model(self.schema, params)
-        txdata = {"txid": tx.txid, "inputs":[], "outputs":[]}
+        txdata = {"txid": tx.hash, "inputs":[], "outputs":[]}
 
         for vin in model['inputs']:
             txdata['inputs'].append(vin.consume_inputs(ctx, tx['inputs']))

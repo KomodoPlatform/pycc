@@ -23,6 +23,16 @@ pub fn decode_condition(buf: &[u8]) -> R<Condition> {
     parse_condition(&mut Parser::from_buf(buf)?)
 }
 
+fn condition_type_from_id(id: u8) -> Result<ConditionType, ConditionDecodeError> {
+    Ok(match id {
+        0 => PreimageType,
+        2 => ThresholdType,
+        5 => Secp256k1Type,
+        15 => EvalType,
+        _ => Err(ConditionDecodeError(format!("Unknown condition type id: {:?}", id)))?
+    })
+}
+
 struct Parser(Vec<ASN1Block>);
 
 impl Parser {
@@ -123,18 +133,19 @@ fn parse_fulfillment(parser: &mut Parser) -> R<Condition> {
 
 fn parse_condition(top_parser: &mut Parser) -> R<Condition> {
     let (type_id, mut parser) = top_parser.any()?;
+    let cond_type = condition_type_from_id(type_id)?;
     let () = top_parser.end()?;
     let fingerprint = parser.buf(0)?;
     let cost = BigInt::from_signed_bytes_be(&parser.buf(1)?)
         .to_u64()
         .ok_or(err("Can't decode cost"))?;
-    let subtypes = match type_id_has_subtypes(type_id) {
+    let subtypes = match cond_type.has_subtypes() {
         true => internal::unpack_set(parser.buf(2)?),
         _ => HashSet::new(),
     };
     let () = parser.end()?;
     Ok(Anon {
-        type_id,
+        cond_type,
         fingerprint,
         cost,
         subtypes,

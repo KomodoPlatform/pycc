@@ -1,6 +1,7 @@
 
 from pycc.examples import faucet
 from pycc import *
+from pycctx import *
 
 app = CCApp(faucet.schema)
 
@@ -16,17 +17,18 @@ eval_code_bin = b'_'
 
 create_tx = Tx(
     inputs = [
-        TxIn((txid_1, 0), P2PKH.script_sig(addr))
+        TxIn((txid_1, 0), ScriptSig.from_address(keypair['addr']))
     ],
     outputs = [
-        TxOut(1000000, CC.script_pubkey(Eval(eval_code_bin))),
-        make_opret_output(repr({"tx": "faucet.create"}))
+        TxOut(1000000, ScriptPubKey.from_condition(cc_eval(eval_code_bin))),
+        TxOut.op_return(repr({"tx": "faucet.create"}).encode())
     ]
 )
+create_tx.sign([keypair['wif']])
+import pdb; pdb.set_trace()
 
-create_tx_encoded = encode_tx(sign_tx(create_tx, [keypair['wif']]))
 
-
+drip_tx
 drip_tx = {
     "inputs": [
         {
@@ -65,23 +67,21 @@ drip_tx = {
     ]
 }
 
-drip_tx_encoded = encode_tx(sign_tx(drip_tx, [keypair['wif']]))
-
 
 def test_validate_create():
-    o = app.cc_eval({}, hex_decode(create_tx_encoded['hex']), 0, b"_")
+    o = app.cc_eval({}, create_tx.encode_bin(), 0, b"_")
     assert o == {
         "inputs": [{"address": keypair['addr'], "txid": txid_1, "idx": 0}],
         "outputs": [{"amount": 1000000}],
-        "txid": create_tx_encoded['txid']
+        "txid": create_tx.hash
     }
 
 
 def test_validate_drip():
-    o = app.cc_eval({}, hex_decode(drip_tx_encoded['hex']), 0, b'_')
+    o = app.cc_eval({}, drip_tx.encode_bin(), 0, b'_')
     assert o == {
         "inputs": [{"idx": 0, "txid": txid_1}],
         "outputs": [{"amount": 999000}, {"amount": 1000, "address": keypair['addr']}],
-        "txid": drip_tx_encoded['txid']
+        "txid": drip_tx.hash
     }
 

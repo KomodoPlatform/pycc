@@ -2,10 +2,30 @@
 import pytest
 from pycctx import *
 
+address0 = "RWqrNbM3gUr4A9kX9sMXTRyRbviLsSbjAs"
+outpoint0 = ("d21633ba23f70118185227be58a63527675641ad37967e2aa461559f577aec43", 3)
+
+keypair = {
+    "wif": "UuKZRxAR4KYVSVKxgL8oKuyBku7bVhqbGk9onuaEzkXdaxgytpLB",
+    "addr": "RWqrNbM3gUr4A9kX9sMXTRyRbviLsSbjAs",
+    "pubkey": "038c3d482cd29f75ce997737705fb5287f022ded66093ee7d929aea100c5ef8a63"
+}
+
+
+def test_encode_vin():
+    vin = MTxIn(outpoint0, ScriptSig.from_address(address0))
+    assert vin.to_py() == {
+        "previous_output": outpoint0,
+        "script": {
+            "AddressSig": {
+                "address": address0,
+            }
+        }
+    }
 
 def test_tx_decode():
     tx = Tx.from_hex('01000000000000000000')
-    assert tx.txid == "d21633ba23f70118185227be58a63527675641ad37967e2aa461559f577aec43"
+    assert tx.hash == "d21633ba23f70118185227be58a63527675641ad37967e2aa461559f577aec43"
     assert tx.to_py() == {
         "inputs": [],
         "outputs": []
@@ -17,58 +37,72 @@ def test_known_good():
         'inputs': [
             {'previous_output': ('0087625afe232c6ab463b48b614b4ea8028339b73432baa4f9c18ae44ea7b700',
                                  0),
-             'script_sig': b'Ly\xa2v\xa0r\xa2k\xa0g\xa5e\x80!\x03h+%\\@'
-                           b'\xd0\xcd\xe8\xfa\xee8\x1a\x1aP\xbb\xb8\x99'
-                           b'\x80\xff$S\x9c\xb8Q\x8e)M:c\xce\xfe\x12\x81@\xb6R"'
-                           b"\xf7\x05rh\xe4\x8b\xb7)\xabC\xb7'\x9eN\xb2+"
-                           b'\x82\xf8\xe6\xf0\xe5Y\xc0_\xf6\x8e\xc4\xe3'
-                           b'\xed$\xf7\xd1\xc8\t]\x04\xc2\x1c\x9c\xe9'
-                           b'&\xa5\xbc\xb0\xb9\x1d\xa8n6\x14\xf4k\xab\xd0t\xc9'
-                           b'wk\xc7\x97\x8a\xa1\x00\xaf\x03\x80\x01\xe4'
-                           b'\xa1\x00\x01'
+             'script': b'Ly\xa2v\xa0r\xa2k\xa0g\xa5e\x80!\x03h+%\\@'
+                       b'\xd0\xcd\xe8\xfa\xee8\x1a\x1aP\xbb\xb8\x99'
+                       b'\x80\xff$S\x9c\xb8Q\x8e)M:c\xce\xfe\x12\x81@\xb6R"'
+                       b"\xf7\x05rh\xe4\x8b\xb7)\xabC\xb7'\x9eN\xb2+"
+                       b'\x82\xf8\xe6\xf0\xe5Y\xc0_\xf6\x8e\xc4\xe3'
+                       b'\xed$\xf7\xd1\xc8\t]\x04\xc2\x1c\x9c\xe9'
+                       b'&\xa5\xbc\xb0\xb9\x1d\xa8n6\x14\xf4k\xab\xd0t\xc9'
+                       b'wk\xc7\x97\x8a\xa1\x00\xaf\x03\x80\x01\xe4'
+                       b'\xa1\x00\x01'
             }
         ],
         'outputs': [
-            {'script_pubkey': b'.\xa2,\x80 \xe0)\xc5\x11\xdaUR5e\x83X'
-                               b'\x87\xe4\x12\xe5\xa0\xc9\xb9 \x80\x1b\x00p'
-                               b'\x00\xdfE\xe5E\xf2P($\x81\x03\x12'
-                               b'\x0c\x00\x82\x03\x00\x04\x01\xcc',
-             'value': 479980000
+            {'script': b'.\xa2,\x80 \xe0)\xc5\x11\xdaUR5e\x83X'
+                       b'\x87\xe4\x12\xe5\xa0\xc9\xb9 \x80\x1b\x00p'
+                       b'\x00\xdfE\xe5E\xf2P($\x81\x03\x12'
+                       b'\x0c\x00\x82\x03\x00\x04\x01\xcc',
+             'amount': 479980000
             },
-            {'script_pubkey': b'!\x03\x17K\xf5\xea\xd8\xd6\xcft\xc2\xe2'
-                               b'\xa3\xdb\xb7\x14\x94U\xc8P$:\x14hK\xafA\xdb'
-                               b'\x1c\x0b\x19\xe6\xcc]\xac',
-             'value': 10000000
+            {'script': b'!\x03\x17K\xf5\xea\xd8\xd6\xcft\xc2\xe2'
+                       b'\xa3\xdb\xb7\x14\x94U\xc8P$:\x14hK\xafA\xdb'
+                       b'\x1c\x0b\x19\xe6\xcc]\xac',
+             'amount': 10000000
              },
-             {'script_pubkey': b'j\x06\xe4GgE\x8b\x0b',
-              'value': 0
+             {'script': b'j\x06\xe4GgE\x8b\x0b',
+              'amount': 0
              }
         ]
     }
 
 def test_construct():
     # test invalid hash
-    with pytest.raises(DecodeError):
-        TxIn(("876",1), b"\0a")
+    with pytest.raises(ValueError):
+        TxIn(("876",1), ScriptSig(b"\0a"))
 
     # test valid hash
     some_hash = "0087625afe232c6ab463b48b614b4ea8028339b73432baa4f9c18ae44ea7b700"
-    vin = TxIn((some_hash,1), b"\0a")
-    vout = TxOut(1, b"")
+    vin = TxIn((some_hash, 1), ScriptSig(b"\0a"))
+    vout = TxOut(1, ScriptPubKey(b""))
 
     # test full tx
-    mtx = MutableTx()
+    mtx = Tx()
     mtx.inputs = (vin,)
     mtx.outputs = (vout,)
     assert mtx.to_py() == {
         'inputs': [
             {'previous_output': (some_hash, 1),
-             'script_sig': b'\x00a'}
+             'script': b'\x00a'}
         ],
-        'outputs': [{'script_pubkey': b'', 'value': 1}]
+        'outputs': [{'script': b'', 'amount': 1}]
     }
+    with pytest.raises(ValueError):
+        mtx.hash
 
-    # test freeze
-    tx = mtx.freeze()
-    assert mtx.to_py() == tx.to_py()
+
+def test_cc_input_against_hoek():
+    tx = Tx()
+    tx.inputs = (TxIn(outpoint0, ScriptSig.from_condition(cc_eval(b"abc"))),)
+    tx.outputs = ()
+    assert tx.hash == "9c51a8f7ae843b1049ac9cd21c0ee4b55b67b50e895e756c47bb9e29162b77df"
+
+
+def test_sign():
+    tx = Tx()
+    tx.inputs = (TxIn(outpoint0, ScriptSig.from_address(keypair["addr"]), input_amount=0),
+            TxIn(outpoint0, ScriptSig.from_condition(cc_secp256k1(keypair["pubkey"])), input_amount=0))
+    tx.sign([keypair['wif']])
+    import pdb; pdb.set_trace()
+
 
