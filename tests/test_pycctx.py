@@ -103,6 +103,6 @@ def test_sign():
     tx.inputs = (TxIn(outpoint0, ScriptSig.from_address(keypair["addr"]), input_amount=0),
             TxIn(outpoint0, ScriptSig.from_condition(cc_secp256k1(keypair["pubkey"])), input_amount=0))
     tx.sign([keypair['wif']])
-    import pdb; pdb.set_trace()
+    tx.hash # will fail if not signed
 
 
