@@ -13,18 +13,18 @@ keypair = {
 
 
 def test_encode_vin():
-    vin = MTxIn(outpoint0, ScriptSig.from_address(address0))
+    vin = TxIn(outpoint0, ScriptSig.from_address(address0))
     assert vin.to_py() == {
         "previous_output": outpoint0,
         "script": {
-            "AddressSig": {
+            "address": {
                 "address": address0,
             }
         }
     }
 
 def test_tx_decode():
-    tx = Tx.from_hex('01000000000000000000')
+    tx = Tx.decode('01000000000000000000')
     assert tx.hash == "d21633ba23f70118185227be58a63527675641ad37967e2aa461559f577aec43"
     assert tx.to_py() == {
         "inputs": [],
@@ -32,7 +32,7 @@ def test_tx_decode():
     }
 
 def test_known_good():
-    tx = Tx.from_hex("010000000100b7a74ee48ac1f9a4ba3234b7398302a84e4b618bb463b46a2c23fe5a628700000000007b4c79a276a072a26ba067a565802103682b255c40d0cde8faee381a1a50bbb89980ff24539cb8518e294d3a63cefe128140b65222f7057268e48bb729ab43b7279e4eb22b82f8e6f0e559c05ff68ec4e3ed24f7d1c8095d04c21c9ce926a5bcb0b91da86e3614f46babd074c9776bc7978aa100af038001e4a10001ffffffff03e0e99b1c00000000302ea22c8020e029c511da55523565835887e412e5a0c9b920801b007000df45e545f25028248103120c008203000401cc8096980000000000232103174bf5ead8d6cf74c2e2a3dbb7149455c850243a14684baf41db1c0b19e6cc5dac0000000000000000086a06e44767458b0b00000000")
+    tx = Tx.decode("010000000100b7a74ee48ac1f9a4ba3234b7398302a84e4b618bb463b46a2c23fe5a628700000000007b4c79a276a072a26ba067a565802103682b255c40d0cde8faee381a1a50bbb89980ff24539cb8518e294d3a63cefe128140b65222f7057268e48bb729ab43b7279e4eb22b82f8e6f0e559c05ff68ec4e3ed24f7d1c8095d04c21c9ce926a5bcb0b91da86e3614f46babd074c9776bc7978aa100af038001e4a10001ffffffff03e0e99b1c00000000302ea22c8020e029c511da55523565835887e412e5a0c9b920801b007000df45e545f25028248103120c008203000401cc8096980000000000232103174bf5ead8d6cf74c2e2a3dbb7149455c850243a14684baf41db1c0b19e6cc5dac0000000000000000086a06e44767458b0b00000000")
     assert tx.to_py() == {
         'inputs': [
             {'previous_output': ('0087625afe232c6ab463b48b614b4ea8028339b73432baa4f9c18ae44ea7b700',
@@ -87,12 +87,10 @@ def test_construct():
         ],
         'outputs': [{'script': b'', 'amount': 1}]
     }
-    with pytest.raises(ValueError):
-        mtx.hash
 
 
 def test_cc_input_against_hoek():
-    tx = Tx()
+    tx = Tx(version=1)
     tx.inputs = (TxIn(outpoint0, ScriptSig.from_condition(cc_eval(b"abc"))),)
     tx.outputs = ()
     assert tx.hash == "9c51a8f7ae843b1049ac9cd21c0ee4b55b67b50e895e756c47bb9e29162b77df"
@@ -102,7 +100,11 @@ def test_sign():
     tx = Tx()
     tx.inputs = (TxIn(outpoint0, ScriptSig.from_address(keypair["addr"]), input_amount=0),
             TxIn(outpoint0, ScriptSig.from_condition(cc_secp256k1(keypair["pubkey"])), input_amount=0))
-    tx.sign([keypair['wif']])
-    tx.hash # will fail if not signed
 
+
+    with pytest.raises(ValueError):
+        tx.sign(["UroCh5e8855Cv31jBvR8zYH3ykuEVK84U8QsELHubSsJRemD35QV"])
+
+    tx.sign([keypair['wif']])
+    tx.hash
 

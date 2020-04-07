@@ -127,10 +127,13 @@ struct Tx {
 #[pymethods]
 impl Tx {
     #[new]
-    fn new(inputs, outputs, version) -> Self {
+    #[args(inputs="vec![]", outputs="vec![]", version="4")]
+    fn new(inputs: Vec<TxIn>, outputs: Vec<TxOut>, version: i32) -> Self {
         let mut tx = chain::Transaction::default();
-        tx.version = 1;
-        Tx { tx, inputs: vec![] }
+        tx.version = version;
+        let mut mtx = Tx { tx, inputs: inputs };
+        mtx.set_outputs(outputs);
+        mtx
     }
 
     #[getter]
