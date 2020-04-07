@@ -51,9 +51,10 @@ is required, that is encoded as a list of inputs, so the structure does not chan
 
 ## Setup
 
-Install [hoek](https://github.com/ssadler/hoek)
+Install rust: https://www.rust-lang.org/tools/install
 
 ```shell
+make pycctx
 virtualenv -p python3 .env
 .env/bin/activate
 pip install -r requirements_test.txt
