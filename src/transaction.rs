@@ -137,12 +137,11 @@ struct Tx {
 impl Tx {
     #[new]
     #[args(inputs="vec![]", outputs="vec![]", version="4")]
-    fn new(inputs: Vec<TxIn>, outputs: Vec<TxOut>, version: i32) -> Self {
-        let mut tx = chain::Transaction::default();
-        tx.version = version;
-        let mut mtx = Tx { tx, inputs: inputs };
+    fn new(inputs: Vec<TxIn>, outputs: Vec<TxOut>, version: i32) -> PyResult<Self> {
+        let mut mtx = Tx { tx: chain::Transaction::default(), inputs: inputs };
         mtx.set_outputs(outputs);
-        mtx
+        mtx.set_version(version)?;
+        Ok(mtx)
     }
 
     #[getter]
@@ -151,7 +150,26 @@ impl Tx {
     }
 
     #[getter] fn get_version(&self) -> i32 { self.tx.version }
-    #[setter] fn set_version(&mut self, version: i32) -> () { self.tx.version = version }
+    #[setter] fn set_version(&mut self, version: i32) -> PyResult<()> {
+        match version {
+            1 => self.set_standard(),
+            4 => self.set_sapling(),
+            v => return Err(TxBadVersion::py_err(format!("Unknown version: {:?}", v)))
+        }
+        Ok(())
+    }
+
+    fn set_sapling(&mut self) {
+        self.tx.version = 4;
+        self.tx.overwintered = true;
+        self.tx.version_group_id = 0x892F2085;
+    }
+
+    fn set_standard(&mut self) {
+        self.tx.version = 1;
+        self.tx.overwintered = false;
+        self.tx.version_group_id = 0;
+    }
 
     #[getter] fn get_lock_time(&self) -> u32 { self.tx.lock_time }
     #[setter] fn set_lock_time(&mut self, lock_time: u32) -> () { self.tx.lock_time = lock_time }
