@@ -254,8 +254,7 @@ pub fn cc_threshold(threshold: u16, subconditions: Vec<PyCondition>) -> PyCondit
     PyCondition { cond: cc::Threshold { threshold, subconditions: subs }}
 }
 
-
-pub fn script_setup_module(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn setup_module(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ScriptPubKey>()?;
     m.add_class::<ScriptSig>()?;
     m.add_wrapped(wrap_pyfunction!(cc_eval))?;

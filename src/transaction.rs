@@ -2,16 +2,15 @@ extern crate chain;
 extern crate primitives;
 extern crate serialization;
 
-use pyo3::{create_exception, prelude::*, types::{PyDict, PyTuple, PyBytes}, exceptions};
+use pyo3::{prelude::*, types::{PyDict, PyTuple, PyBytes}, exceptions};
 use rustc_hex::{FromHex, ToHex};
 use primitives::hash;
 use std::str::FromStr;
 
+use crate::exceptions::*;
 use crate::script::*;
 use crate::script::ScriptPubKey;
 
-
-create_exception!(pycctx, DecodeError, pyo3::exceptions::Exception);
 
 #[pyclass]
 #[derive(Clone)]
@@ -119,6 +118,15 @@ macro_rules! vec_to_tuple {
 }
 
 #[pyclass]
+/// Tx(self, inputs, outputs, version, /)
+/// --
+///
+/// Transaction structure
+///
+/// kwargs:
+///     inputs [TxIn] (optional): List of inputs
+///     outputs [TxOut] (optional): List of outputs
+///     version int (optional) (default 4): Tx version
 struct Tx {
     tx: chain::Transaction,
     inputs: Vec<TxIn>
@@ -138,7 +146,7 @@ impl Tx {
 
     #[getter]
     fn hash(&self) -> PyResult<String> {
-        Ok(self.freeze()?.tx.hash().to_reversed_str())
+        Ok(self.freeze()?.hash().to_reversed_str())
     }
 
     #[getter] fn get_version(&self) -> i32 { self.tx.version }
@@ -155,11 +163,21 @@ impl Tx {
         self.tx.outputs = outputs.iter().map(|kvout| kvout.vout.clone()).collect();
     }
 
-    fn sign(&mut self, privkeys_strings: Vec<String>) -> PyResult<()> {
+    /// sign(wifs, /)
+    /// --
+    ///
+    /// Sign a transaction in place, given an array of WIFs.
+    ///
+    /// Args:
+    ///     wifs [str]: list of WIFs as strings
+    /// Raises:
+    ///     ValueError on invalid WIF or cannot sign
+    ///     TxSignError on problem signing transaction
+    fn sign(&mut self, wifs: Vec<String>) -> PyResult<()> {
         fn decode_wif(s: &String) -> PyResult<kk::Private> {
             kk::Private::from_str(s).map_err(|_| exceptions::ValueError::py_err("Cannot decode privkey WIF"))
         }
-        let privkeys: Vec<kk::Private> = privkeys_strings.iter().map(decode_wif).collect::<PyResult<Vec<kk::Private>>>()?;
+        let privkeys: Vec<kk::Private> = wifs.iter().map(decode_wif).collect::<PyResult<Vec<kk::Private>>>()?;
         let mut tx = self.tx.clone();
 
         self.tx.inputs.truncate(0);
@@ -173,7 +191,7 @@ impl Tx {
         let signer = ss::TransactionInputSigner::from(tx.clone());
         'outer: for (i, input) in self.inputs.iter_mut().enumerate() {
             let pubkey = input.script.to_pubkey_script()?;
-            let amount = input.input_amount.ok_or(exceptions::ValueError::py_err("Missing input amount"))?;
+            let amount = input.input_amount.ok_or(TxSignError::py_err("Missing input amount"))?;
             let sighash = signer.signature_hash(i as usize, amount, &pubkey, ss::SignatureVersion::Base, 1);
             for key in &privkeys {
                 input.script.sign(&sighash, &key).map_err(to_py_err)?;
@@ -188,12 +206,16 @@ impl Tx {
                     None => { }
                 }
             }
-            return Err(exceptions::ValueError::py_err("Cannot sign input with given keys"));
+            return Err(TxSignError::py_err("Cannot sign input with given keys"));
         }
 
         Ok(())
     }
 
+    /// to_py(/)
+    /// --
+    ///
+    /// Returns a basic python representation
     fn to_py(&self, py: Python) -> PyResult<PyObject> {
        let a = PyDict::new(py);
        a.set_item(
@@ -209,7 +231,53 @@ impl Tx {
        Ok(a.into())
     }
 
-    fn freeze(&self) -> PyResult<FrozenTx> {
+    /// encode(/)
+    /// --
+    ///
+    /// Encode tx to hex
+    ///
+    /// Raises TxNotSigned
+    fn encode(&self) -> PyResult<String> {
+        Ok(serialization::serialize(&self.freeze()?).to_hex())
+    }
+
+    /// encode(/)
+    /// --
+    ///
+    /// Encode tx to binary
+    fn encode_bin(&self, py: Python) -> PyResult<PyObject> {
+        Ok(PyBytes::new(py, &serialization::serialize(&self.freeze()?)).into())
+    }
+
+    #[staticmethod]
+    /// decode_bin(bin_data, /)
+    /// --
+    ///
+    /// Args:
+    ///     bin_data: bytes
+    ///
+    /// Raises DecodeError
+    fn decode_bin(bin_data: Vec<u8>) -> PyResult<Self> {
+        let tx: chain::Transaction = serialization::deserialize(&*bin_data).map_err(
+            |_| DecodeError::py_err("Invalid tx bin"))?;
+        Ok(Tx { tx: tx.clone(), inputs: tx.inputs.iter().map(From::from).collect() })
+    }
+
+    #[staticmethod]
+    /// decode(hex_data, /)
+    /// --
+    ///
+    /// Args:
+    ///     hex_data: str
+    ///
+    /// Raises DecodeError
+    fn decode(hex_data: String) -> PyResult<Self> {
+        Self::decode_bin(hex_data.from_hex::<Vec<u8>>().map_err(|_|DecodeError::py_err("Invalid hex"))?)
+    }
+}
+
+impl Tx {
+    fn freeze(&self) -> PyResult<chain::Transaction> {
         let mut tx = self.tx.clone();
         tx.inputs.truncate(0);
         for input in &self.inputs {
@@ -220,47 +288,23 @@ impl Tx {
                     tx_input.script_sig = script.into();
                     tx.inputs.push(tx_input);
                 },
-                _ => return Err(to_py_err("Can't freeze tx, has unsigned inputs"))
+                _ => return Err(TxNotSigned::py_err("Can't freeze tx"))
             }
         }
-        Ok(FrozenTx { tx })
-    }
-
-    fn encode(&self) -> PyResult<String> {
-        Ok(serialization::serialize(&self.freeze()?.tx).to_hex())
-    }
-
-    fn encode_bin(&self, py: Python) -> PyResult<PyObject> {
-        Ok(PyBytes::new(py, &serialization::serialize(&self.freeze()?.tx)).into())
-    }
-
-    #[staticmethod]
-    fn decode_bin(bin_data: Vec<u8>) -> PyResult<Self> {
-        let tx: chain::Transaction = serialization::deserialize(&*bin_data).map_err(
-            |_| exceptions::ValueError::py_err("Invalid tx bin"))?;
-        Ok(Tx { tx: tx.clone(), inputs: tx.inputs.iter().map(From::from).collect() })
-    }
-
-    #[staticmethod]
-    fn decode(hex_data: String) -> PyResult<Self> {
-        Self::decode_bin(hex_data.from_hex::<Vec<u8>>().map_err(|_|DecodeError::py_err("Invalid hex"))?)
+        Ok(tx)
     }
 }
 
-#[pyclass]
-struct FrozenTx {
-    tx: chain::Transaction
-}
+
 
 fn to_py_err(e: impl ToString) -> pyo3::PyErr {
     exceptions::ValueError::py_err(e.to_string())
 }
 
 
-pub fn pycctx_transaction(py: Python, m: &PyModule) -> PyResult<()> {
+pub fn setup_module(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Tx>()?;
     m.add_class::<TxIn>()?;
     m.add_class::<TxOut>()?;
-    m.add("DecodeError", py.get_type::<DecodeError>())?;
     Ok(())
 }
