@@ -33,7 +33,7 @@ impl TxIn {
     }
 
     #[getter]
-    fn previous_output(&self) -> (String, u32) {
+    fn get_previous_output(&self) -> (String, u32) {
         (
             self.previous_output.hash.to_reversed_str(),
             self.previous_output.index,
@@ -52,7 +52,7 @@ impl TxIn {
 
     fn to_py(&self, py: Python) -> PyResult<PyObject> {
         let a = PyDict::new(py);
-        a.set_item("previous_output", self.previous_output())?;
+        a.set_item("previous_output", self.get_previous_output())?;
         a.set_item("script", self.script.to_py(py)?)?;
         Ok(a.into())
     }
@@ -119,6 +119,7 @@ macro_rules! vec_to_tuple {
 }
 
 #[pyclass]
+#[derive(Clone)]
 /// Tx(self, inputs, outputs, version, expiry_height /)
 /// --
 ///
@@ -189,53 +190,66 @@ impl Tx {
         self.tx.outputs = outputs.iter().map(|kvout| kvout.vout.clone()).collect();
     }
 
+    #[args(input_txs="vec![]")]
     /// sign(wifs, /)
     /// --
     ///
     /// Sign a transaction in place, given an array of WIFs.
     ///
     /// Args:
-    ///     wifs [str]: list of WIFs as strings
+    ///     wifs [str]:      List of WIFs as strings
+    ///     input_txs: [Tx]: List of input transactions. This is to get the amounts of
+    ///                      the inputs, but the amounts may also be provided to the
+    ///                      inputs via `TxIn(input_amount=$amount)`.
     /// Raises:
     ///     ValueError on invalid WIF or cannot sign
     ///     TxSignError on problem signing transaction
-    fn sign(&mut self, wifs: Vec<String>) -> PyResult<()> {
+    fn sign(&mut self, wifs: Vec<String>, input_txs: Vec<Tx>) -> PyResult<()> {
         fn decode_wif(s: &String) -> PyResult<kk::Private> {
             kk::Private::from_str(s).map_err(|_| exceptions::ValueError::py_err("Cannot decode privkey WIF"))
         }
         let privkeys: Vec<kk::Private> = wifs.iter().map(decode_wif).collect::<PyResult<Vec<kk::Private>>>()?;
-        let mut tx = self.tx.clone();
 
+        let get_input_amount = |i, input:&TxIn| {
+            let err = |s:&str| TxSignError::py_err(format!("Input {}: {}", i, s.to_string()));
+
+            let amount0 = input.input_amount;
+
+            for in_tx in &input_txs {
+                if in_tx.tx.hash() == input.previous_output.hash {
+                    let amount = in_tx.tx.outputs.get(input.previous_output.index as usize).ok_or_else(||
+                        err(&format!("Transaction does not have output: {:?}", input.get_previous_output()))
+                        )?.value;
+                    if amount0 != None && Some(amount) != amount0 {
+                        return Err(err("Amount provided inconsistent with input tx"));
+                    }
+                    return Ok(amount);
+                }
+            }
+
+            amount0.ok_or_else(|| err("Input value not provided"))
+        };
+
+        // Create a copy of the inner tx and give it dummy inputs
         self.tx.inputs.truncate(0);
-
         for input in &self.inputs {
             let mut inp = chain::TransactionInput::default();
             inp.previous_output = input.previous_output.clone();
-            tx.inputs.push(inp);
+            self.tx.inputs.push(inp);
         }
+        let signer = ss::TransactionInputSigner::from(self.tx.clone());
 
-        let signer = ss::TransactionInputSigner::from(tx.clone());
-        'outer: for (i, input) in self.inputs.iter_mut().enumerate() {
+        // Sign all the inputs
+        for (i, input) in self.inputs.iter_mut().enumerate() {
             let pubkey = input.script.to_pubkey_script()?;
-            let amount = input.input_amount.ok_or(TxSignError::py_err("Missing input amount"))?;
+            let amount = get_input_amount(i, input)?;
             let sighash = signer.signature_hash(i as usize, amount, &pubkey, ss::SignatureVersion::Base, 1);
             for key in &privkeys {
                 input.script.sign(&sighash, &key).map_err(to_py_err)?;
-                match input.script.as_signed() {
-                    Some(script) => {
-                        let mut tx_input = chain::TransactionInput::default();
-                        tx_input.sequence = input.sequence;
-                        tx_input.previous_output = input.previous_output.clone();
-                        tx_input.script_sig = script.into();
-                        tx.inputs[i] = tx_input;
-                        continue 'outer;
-                    },
-                    None => { }
-                }
             }
-            return Err(TxSignError::py_err("Cannot sign input with given keys"));
         }
 
+        self.freeze().map_err(|_| TxSignError::py_err("Cannot sign input with given keys"))?;
         Ok(())
     }
 
