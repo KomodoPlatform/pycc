@@ -1,45 +1,15 @@
 
 import binascii
 import io
-import subprocess
 import json
 import copy
 from collections import namedtuple
 
 from pycctx import *
 
-def call_hoek(method, data):
-    args = ['hoek', method, json.dumps(data)]
-    p = subprocess.Popen(args, stdout=subprocess.PIPE)
-    r = p.wait()
-    if r != 0:
-        raise IOError("Hoek returned error with args: ", args)
-    return json.loads(p.stdout.read())
-
-
-def decode_tx(tx_hex):
-    return call_hoek("decodeTx", {
-        "hex": tx_hex
-    })
-
-
-def encode_tx(tx_dict):
-    return call_hoek('encodeTx', tx_dict)
-
-def sign_tx(tx_dict, privKeys):
-    return call_hoek('signTx', {
-        "tx": tx_dict,
-        "privateKeys": privKeys
-    })
-
-def get_txid(tx_hex):
-    return call_hoek('getTxid', {"hex": tx_hex})
 
 def py_to_hex(data):
     return hex_encode(json.dumps(data, sort_keys=True))
-
-def encode_condition(fulfillment):
-    return call_hoek('encodeCondition', fulfillment)
 
 def hex_encode(data):
     if hasattr(data, 'encode'):
@@ -55,15 +25,13 @@ def hex2py(hex_data):
 def py2hex(data):
     return hex_encode(json.dumps(data))
 
-
 def get_opret(tx):
-    import pdb; pdb.set_trace()
+    assert tx.outputs, "opret not present"
     opret = tx.outputs[-1]
     assert opret.amount == 0
     data = opret.script.get_opret_data()
     assert not data is None, "opret not present"
     return hex2py(data)
-
 
 def get_model_path(opret_data):
     assert 'tx' in opret_data
@@ -96,15 +64,15 @@ class CCApp:
         model = get_model(self.schema, params)
         txdata = {"txid": tx.hash, "inputs":[], "outputs":[]}
 
+        inputs = list(tx.inputs)
         for vin in model['inputs']:
-            txdata['inputs'].append(vin.consume_inputs(ctx, tx['inputs']))
+            txdata['inputs'].append(vin.consume_inputs(ctx, inputs))
+        assert not inputs, "leftover inputs"
 
-        assert not tx['inputs'], "leftover inputs"
-
+        outputs = list(tx.outputs)
         for vout in model['outputs']:
-            txdata['outputs'].append(vout.consume_outputs(ctx, tx['outputs']))
-
-        assert not tx['outputs'], "leftover outputs"
+            txdata['outputs'].append(vout.consume_outputs(ctx, outputs))
+        assert not outputs, "leftover outputs"
 
         if 'validate' in model:
             model['validate'](ctx, txdata)
