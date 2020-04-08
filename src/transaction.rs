@@ -17,18 +17,19 @@ use crate::script::ScriptPubKey;
 struct TxIn {
     pub previous_output: chain::OutPoint,
     pub script: ScriptSig,
+    pub sequence: u32,
     pub input_amount: Option<u64>
 }
 
 #[pymethods]
 impl TxIn {
     #[new]
-    #[args(input_amount="None")]
-    fn new(previous_output: (&str, u32), script: ScriptSig, input_amount: Option<u64>) -> PyResult<Self> {
+    #[args(input_amount="None", sequence="0")]
+    fn new(previous_output: (&str, u32), script: ScriptSig, sequence: u32, input_amount: Option<u64>) -> PyResult<Self> {
         let mut outpoint = chain::OutPoint::default();
         outpoint.hash = hash::H256::from_str(previous_output.0).map_err(to_py_err)?.reversed();
         outpoint.index = previous_output.1;
-        Ok(TxIn { previous_output: outpoint, script, input_amount })
+        Ok(TxIn { previous_output: outpoint, script, sequence, input_amount })
     }
 
     #[getter]
@@ -60,7 +61,7 @@ impl TxIn {
 impl From<&chain::TransactionInput> for TxIn {
     fn from(vin: &chain::TransactionInput) -> TxIn {
         let script = ScriptSig::from(&**vin.script_sig);
-        TxIn { previous_output: vin.previous_output.clone(), script, input_amount: None }
+        TxIn { previous_output: vin.previous_output.clone(), script, sequence: vin.sequence, input_amount: None }
     }
 }
 
@@ -198,6 +199,7 @@ impl Tx {
                 match input.script.as_signed() {
                     Some(script) => {
                         let mut tx_input = chain::TransactionInput::default();
+                        tx_input.sequence = input.sequence;
                         tx_input.previous_output = input.previous_output.clone();
                         tx_input.script_sig = script.into();
                         tx.inputs[i] = tx_input;
@@ -284,6 +286,7 @@ impl Tx {
             match input.script.as_signed() {
                 Some(script) => {
                     let mut tx_input = chain::TransactionInput::default();
+                    tx_input.sequence = input.sequence;
                     tx_input.previous_output = input.previous_output.clone();
                     tx_input.script_sig = script.into();
                     tx.inputs.push(tx_input);
