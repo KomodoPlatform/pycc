@@ -33,17 +33,12 @@ def test_sapling_vout_encode():
     tx = Tx.decode(known_hex)
     assert tx.hash == known_txid
     
-# FIXME currently failing because rust app seems unaware of VersionGroupid
 def test_sapling_vout_create():
     known_hex = "0400008085202f890001f0a29a3b000000001976a9148b7c92762bf98001d4d8e74eef212d59e4ce9a2b88ac00000000d40000000000000000000000000000"
-    
     known_tx = Tx.decode(known_hex)
-    mtx = Tx()
     
-    script = ScriptPubKey(b"")
-    script = script.from_address("RMzjEbvAJNRFVTJ6Uai19FVC4Uzo1UeZ17")
-    
+    script = ScriptPubKey.from_address("RMzjEbvAJNRFVTJ6Uai19FVC4Uzo1UeZ17")
     vout = TxOut(999990000, script)
-    mtx.outputs = (vout,)
-    mtx.version = 4
+    mtx = Tx(version=4, outputs=(vout,), expiry_height=known_tx.expiry_height)
+
     assert mtx.encode() == known_hex

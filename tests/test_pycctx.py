@@ -101,8 +101,7 @@ def test_sign():
     tx.inputs = (TxIn(outpoint0, ScriptSig.from_address(keypair["addr"]), input_amount=0),
             TxIn(outpoint0, ScriptSig.from_condition(cc_secp256k1(keypair["pubkey"])), input_amount=0))
 
-
-    with pytest.raises(ValueError):
+    with pytest.raises(TxSignError):
         tx.sign(["UroCh5e8855Cv31jBvR8zYH3ykuEVK84U8QsELHubSsJRemD35QV"])
 
     tx.sign([keypair['wif']])

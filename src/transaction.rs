@@ -119,7 +119,7 @@ macro_rules! vec_to_tuple {
 }
 
 #[pyclass]
-/// Tx(self, inputs, outputs, version, /)
+/// Tx(self, inputs, outputs, version, expiry_height /)
 /// --
 ///
 /// Transaction structure
@@ -128,6 +128,7 @@ macro_rules! vec_to_tuple {
 ///     inputs [TxIn] (optional): List of inputs
 ///     outputs [TxOut] (optional): List of outputs
 ///     version int (optional) (default 4): Tx version
+///     expiry_height int (optional): Last block height in which transaction can be mined
 struct Tx {
     tx: chain::Transaction,
     inputs: Vec<TxIn>
@@ -136,11 +137,12 @@ struct Tx {
 #[pymethods]
 impl Tx {
     #[new]
-    #[args(inputs="vec![]", outputs="vec![]", version="4")]
-    fn new(inputs: Vec<TxIn>, outputs: Vec<TxOut>, version: i32) -> PyResult<Self> {
+    #[args(inputs="vec![]", outputs="vec![]", version="4", expiry_height="0")]
+    fn new(inputs: Vec<TxIn>, outputs: Vec<TxOut>, version: i32, expiry_height: u32) -> PyResult<Self> {
         let mut mtx = Tx { tx: chain::Transaction::default(), inputs: inputs };
         mtx.set_outputs(outputs);
         mtx.set_version(version)?;
+        mtx.set_expiry_height(expiry_height);
         Ok(mtx)
     }
 
@@ -163,16 +165,21 @@ impl Tx {
         self.tx.version = 4;
         self.tx.overwintered = true;
         self.tx.version_group_id = 0x892F2085;
+        self.tx.zcash = true;
     }
 
     fn set_standard(&mut self) {
         self.tx.version = 1;
         self.tx.overwintered = false;
         self.tx.version_group_id = 0;
+        self.tx.zcash = false;
     }
 
     #[getter] fn get_lock_time(&self) -> u32 { self.tx.lock_time }
     #[setter] fn set_lock_time(&mut self, lock_time: u32) -> () { self.tx.lock_time = lock_time }
+
+    #[getter] fn get_expiry_height(&self) -> u32 { self.tx.expiry_height }
+    #[setter] fn set_expiry_height(&mut self, expiry_height: u32) -> () { self.tx.expiry_height = expiry_height }
 
     #[getter] fn get_inputs(&self, py: Python) -> PyObject { vec_to_tuple!(py, self.inputs.clone()) }
     #[setter] fn set_inputs(&mut self, inputs: Vec<TxIn>) { self.inputs = inputs }
