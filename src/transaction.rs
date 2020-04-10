@@ -191,7 +191,7 @@ impl Tx {
     }
 
     #[args(input_txs="vec![]")]
-    /// sign(wifs, /)
+    /// sign(wifs, input_txs, /)
     /// --
     ///
     /// Sign a transaction in place, given an array of WIFs.
@@ -205,10 +205,9 @@ impl Tx {
     ///     ValueError on invalid WIF or cannot sign
     ///     TxSignError on problem signing transaction
     fn sign(&mut self, wifs: Vec<String>, input_txs: Vec<Tx>) -> PyResult<()> {
-        fn decode_wif(s: &String) -> PyResult<kk::Private> {
+        let privkeys: Vec<kk::Private> = wifs.iter().map(|s|
             kk::Private::from_str(s).map_err(|_| exceptions::ValueError::py_err("Cannot decode privkey WIF"))
-        }
-        let privkeys: Vec<kk::Private> = wifs.iter().map(decode_wif).collect::<PyResult<Vec<kk::Private>>>()?;
+            ).collect::<PyResult<Vec<kk::Private>>>()?;
 
         let get_input_amount = |i, input:&TxIn| {
             let err = |s:&str| TxSignError::py_err(format!("Input {}: {}", i, s.to_string()));

@@ -12,7 +12,10 @@ crate-type = ["dylib"]
 
 [dependencies.pyo3]
 version = "0.9.1"
-features = ["extension-module"]
+
+[features]
+extension-module = ["pyo3/extension-module"]
+default = ["extension-module"]
 
 [dependencies]
 chain = { git = "https://github.com/ssadler/parity-bitcoin.git" }

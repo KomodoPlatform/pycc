@@ -135,7 +135,7 @@ impl ScriptSig {
     pub fn as_signed(&self) -> Option<Script> {
         match &self.script {
             AddressSig { signature: Some(sig), .. } => {
-                // TODO: fix
+                // TODO: push pubkey then sig
                 Some(Builder::default().push_data(&**sig).into_script())
             }
             ConditionSig { condition } => {
@@ -262,4 +262,33 @@ pub fn setup_module(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(cc_secp256k1))?;
     m.add_wrapped(wrap_pyfunction!(cc_threshold))?;
     Ok(())
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustc_hex::{FromHex, ToHex};
+    use std::str::FromStr;
+
+    #[test]
+    fn test_sig_encoding() {
+        let privkey = kk::Private::from_str("UrLfELwGtHeXmvFYhpLZvCWbc3d9xH1nCvADXrzDGLPy2HY6nGm7").unwrap();
+        let kp = kk::KeyPair::from_private(privkey.clone()).unwrap();
+        let flags = ss::VerificationFlags::default().verify_strictenc(true);
+
+        let f = |sig| {
+            let script = Builder::default()
+                .push_data(sig).push_data(&kp.public()).push_opcode(ss::Opcode::OP_CHECKSIG).into_script();
+            let mut stack = ss::Stack::new();
+            ss::eval_script(&mut stack, &script, &flags, &ss::NoopSignatureChecker, ss::SignatureVersion::Base)
+        };
+
+        let sig = privkey.sign(&hash::H256::default()).unwrap();
+        assert_eq!(Err(ss::Error::SignatureDer), f(&*sig));
+
+        let mut sigdata = (*sig).to_vec();
+        sigdata.push(1);
+        assert_eq!(Ok(false), f(&*sigdata)); // NoopSignatureChecker returns false
+    }
 }
