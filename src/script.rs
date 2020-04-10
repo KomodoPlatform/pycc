@@ -70,7 +70,7 @@ use ScriptSigInner::*;
 pub enum ScriptSigInner {
     AddressSig {
         address: kk::Address,
-        signature: Option<kk::Signature>
+        signature: Option<(kk::Public, kk::Signature)>
     },
     ConditionSig {
         condition: PyCondition
@@ -106,7 +106,10 @@ impl ScriptSig {
                 let inner = PyDict::new(py);
                 inner.set_item("address", address.to_string())?;
                 match signature {
-                    Some(sig) => inner.set_item("address", sig.to_string())?,
+                    Some((public, sig)) => {
+                        inner.set_item("pubkey", public.to_string())?;
+                        inner.set_item("signature", sig.to_string())?;
+                    },
                     _ => ()
                 };
                 f("address", inner.into())
@@ -133,14 +136,18 @@ impl ScriptSig {
 
 impl ScriptSig {
     pub fn as_signed(&self) -> Option<Script> {
+        let append_hash_type = |l:&[u8]| {
+            let mut v = l.to_vec();
+            v.push(1);
+            v
+        };
         match &self.script {
-            AddressSig { signature: Some(sig), .. } => {
-                // TODO: push pubkey then sig
-                Some(Builder::default().push_data(&**sig).into_script())
+            AddressSig { signature: Some((public, sig)), .. } => {
+                Some(Builder::default().push_data(&append_hash_type(&**sig)).push_data(&**public).into_script())
             }
             ConditionSig { condition } => {
                 match condition.cond.encode_fulfillment() {
-                    Ok(ffill) => Some(Builder::default().push_data(&ffill).into_script()),
+                    Ok(ffill) => Some(Builder::default().push_data(&append_hash_type(&ffill)).into_script()),
                     _ => None
                 }
             },
@@ -160,8 +167,9 @@ impl ScriptSig {
     pub fn sign(&mut self, sighash: &hash::H256, private: &kk::Private) -> Result<(), kk::Error> {
         match &mut self.script {
             AddressSig { address, ref mut signature } => {
-                if kk::KeyPair::from_private(private.clone())?.public().address_hash() == address.hash {
-                    *signature = Some(private.sign(sighash)?);
+                let public = kk::KeyPair::from_private(private.clone())?.public().clone();
+                if public.address_hash() == address.hash {
+                    *signature = Some((public, private.sign(sighash)?));
                 }
             },
             ConditionSig { condition } => {
@@ -268,7 +276,6 @@ pub fn setup_module(_py: Python, m: &PyModule) -> PyResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustc_hex::{FromHex, ToHex};
     use std::str::FromStr;
 
     #[test]

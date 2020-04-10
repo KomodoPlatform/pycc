@@ -89,13 +89,6 @@ def test_construct():
     }
 
 
-def test_cc_input_against_hoek():
-    tx = Tx(version=1)
-    tx.inputs = (TxIn(outpoint0, ScriptSig.from_condition(cc_eval(b"abc"))),)
-    tx.outputs = ()
-    assert tx.hash == "9c51a8f7ae843b1049ac9cd21c0ee4b55b67b50e895e756c47bb9e29162b77df"
-
-
 def test_sign():
     tx = Tx()
     tx.inputs = (TxIn(outpoint0, ScriptSig.from_address(keypair["addr"]), input_amount=0),
