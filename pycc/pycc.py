@@ -31,11 +31,11 @@ def get_opret(tx):
     assert opret.amount == 0
     data = opret.script.get_opret_data()
     assert not data is None, "opret not present"
-    return hex2py(data)
+    return data
 
 def get_model_path(opret_data):
     assert 'tx' in opret_data
-    path = opret_data['tx'].split('.')
+    path = opret_data['tx'].decode().split('.')
     assert len(path) == 2
     return path
 
@@ -59,7 +59,7 @@ class CCApp:
 
     def cc_eval(self, chain, tx_bin, n_in, eval_prefix):
         tx = Tx.decode_bin(tx_bin)
-        params = get_opret(tx)
+        params = {"tx": get_opret(tx)}
         ctx = EvalContext(eval_prefix, self.schema, params, chain)
         model = get_model(self.schema, params)
         txdata = {"txid": tx.hash, "inputs":[], "outputs":[]}
@@ -120,7 +120,7 @@ class Input:
 
     def consume_inputs(self, ctx, inputs):
         inp = inputs.pop(0)
-        r = self.script.consume_input(ctx, inp['script']) or {}
+        r = self.script.consume_input(ctx, inp.script) or {}
         r['txid'] = inp['txid']
         r['idx'] = inp['idx']
         return r
@@ -128,6 +128,7 @@ class Input:
 
 class P2PKH:
     def consume_input(self, ctx, script):
+        import pdb; pdb.set_trace()
         return {"address": script['address']}
 
     def consume_output(self, ctx, script):
@@ -135,7 +136,7 @@ class P2PKH:
 
     @staticmethod
     def script_sig(addr):
-        return ScriptSig.p2pkh_from_addr(addr)
+        return ScriptSig.from_address(addr)
 
 
 class InputAmount:

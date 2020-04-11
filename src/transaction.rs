@@ -148,7 +148,7 @@ impl Tx {
     }
 
     #[getter]
-    fn hash(&self) -> PyResult<String> {
+    fn get_hash(&self) -> PyResult<String> {
         Ok(self.freeze()?.hash().to_reversed_str())
     }
 
@@ -215,7 +215,7 @@ impl Tx {
             let amount0 = input.input_amount;
 
             for in_tx in &input_txs {
-                if in_tx.tx.hash() == input.previous_output.hash {
+                if in_tx.hash()? == input.previous_output.hash {
                     let amount = in_tx.tx.outputs.get(input.previous_output.index as usize).ok_or_else(||
                         err(&format!("Transaction does not have output: {:?}", input.get_previous_output()))
                         )?.value;
@@ -333,6 +333,10 @@ impl Tx {
             }
         }
         Ok(tx)
+    }
+
+    fn hash(&self) -> PyResult<hash::H256> {
+        Ok(self.freeze()?.hash())
     }
 }
 
