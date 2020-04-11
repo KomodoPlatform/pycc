@@ -1,5 +1,5 @@
 
-cargo:
+build:
 	cargo +nightly build --release
 
 cargo-watch-test:

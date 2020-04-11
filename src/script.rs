@@ -238,6 +238,15 @@ impl PyCondition {
         };
         Ok(d.into())
     }
+
+    #[staticmethod]
+    fn decode_fulfillment(condition_hex: String) -> PyResult<Self> {
+        let cond_bin = condition_hex.from_hex::<Vec<u8>>().map_err(
+            |e| exceptions::ValueError::py_err(e.to_string()))?;
+        let cond = cc::decode_fulfillment(&cond_bin).map_err(
+            |_| exceptions::ValueError::py_err("Invalid fulfillment data"))?;
+        Ok(Self { cond })
+    }
 }
 
 #[pyfunction]
@@ -265,6 +274,7 @@ pub fn cc_threshold(threshold: u16, subconditions: Vec<PyCondition>) -> PyCondit
 pub fn setup_module(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ScriptPubKey>()?;
     m.add_class::<ScriptSig>()?;
+    m.add_class::<PyCondition>()?;
     m.add_wrapped(wrap_pyfunction!(cc_eval))?;
     m.add_wrapped(wrap_pyfunction!(cc_preimage))?;
     m.add_wrapped(wrap_pyfunction!(cc_secp256k1))?;
