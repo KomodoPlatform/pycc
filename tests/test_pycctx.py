@@ -69,20 +69,38 @@ def test_known_good():
     }
 
     input_script = tx.inputs[0].script.to_py()
-    assert input_script[0] == 76
-    ffill_bin = input_script[2:-1]
-    ffill_hex = base64.b16encode(ffill_bin).decode()
+    ffill_hex = base64.b16encode(input_script[2:-1]).decode()
     cond = Condition.decode_fulfillment(ffill_hex)
 
     mtx = Tx(
         inputs = [
             TxIn(tx.inputs[0].previous_output, ScriptSig.from_condition(cond), sequence=0xffffffff),
         ],
-        outputs = tx.outputs,
+        outputs = [
+            tx.outputs[0],
+            tx.outputs[1],
+            TxOut.op_return(b'\xe4GgE\x8b\x0b')
+        ],
         version = 1
     )
     assert mtx.encode() == rawtx
-    
+
+def test_known_2():
+    rawtx = "010000000126f19af8dcb4ebe16c21a118d16acbe4fd066670e656274ffb35b0ea55dc7ca8010000006a47304402204c6aac0cfdbd543caaaeddc80717dbf603efd9e54f9aa8870b09042529e5a34e0220279097b798aee8dce287055760e89eac14bf08ffca06dc9cee9c0e7a4b60737e01210281fa0af5067ad1680a462f71535da66f290bb3a2f8ea0fa180d255b21c0e0caeffffffff01f0a29a3b000000001976a9144ac0524906dbeda34e9edfcb01c7a0f4e125b0f388ac00000000"
+    wif = "UpWLKEQ1229EveQGTvr9qM5He8H8LARPFo9qoZxToswR2vkDAGQx"
+    addr = "RG6SUSPQZmQLoZmH9yMVywMX1wUgYzD4Tf"
+
+    in_tx = Tx.decode(rawtx)
+    mtx = Tx(
+        inputs = [
+            TxIn(in_tx.inputs[0].previous_output, ScriptSig.from_address(addr),
+                input_amount=999990000, sequence=0xffffffff)
+        ],
+        outputs = in_tx.outputs,
+        version=1
+    )
+    mtx.sign([wif])
+    assert mtx.encode() == rawtx
 
 def test_construct():
     # test invalid hash
