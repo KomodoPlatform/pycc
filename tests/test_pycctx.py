@@ -74,7 +74,7 @@ def test_known_good():
 
     mtx = Tx(
         inputs = [
-            TxIn(tx.inputs[0].previous_output, ScriptSig.from_condition(cond), sequence=0xffffffff),
+            TxIn(tx.inputs[0].previous_output, ScriptSig.from_condition(cond)),
         ],
         outputs = [
             tx.outputs[0],
@@ -94,7 +94,7 @@ def test_known_2():
     mtx = Tx(
         inputs = [
             TxIn(in_tx.inputs[0].previous_output, ScriptSig.from_address(addr),
-                input_amount=999990000, sequence=0xffffffff)
+                input_amount=999990000)
         ],
         outputs = in_tx.outputs,
         version=1

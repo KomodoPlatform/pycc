@@ -24,7 +24,7 @@ struct TxIn {
 #[pymethods]
 impl TxIn {
     #[new]
-    #[args(input_amount="None", sequence="0")]
+    #[args(input_amount="None", sequence="0xffffffff")]
     fn new(previous_output: (&str, u32), script: ScriptSig, sequence: u32, input_amount: Option<u64>) -> PyResult<Self> {
         let mut outpoint = chain::OutPoint::default();
         outpoint.hash = hash::H256::from_str(previous_output.0).map_err(to_py_err)?.reversed();
