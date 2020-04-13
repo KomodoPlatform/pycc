@@ -1,13 +1,8 @@
-use num_bigint::{BigInt, BigUint};
-use num_traits::cast::FromPrimitive;
 use rustc_hex::{FromHex, ToHex};
-use simple_asn1::*;
 
-use serde_json::{Result, Value};
-use std::error::Error;
+use serde_json::Value;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
 
 use secp256k1::{PublicKey, Signature};
 
@@ -53,7 +48,7 @@ test_vectors!(
     test_0000_minimal_preimage,
     cond_0000
 );
-fn cond_0000(val: &Value) -> Condition {
+fn cond_0000(_val: &Value) -> Condition {
     Preimage { preimage: vec![] }
 }
 test_vectors!(
@@ -61,7 +56,7 @@ test_vectors!(
     test_0002_minimal_threshold,
     cond_0002
 );
-fn cond_0002(val: &Value) -> Condition {
+fn cond_0002(_val: &Value) -> Condition {
     Threshold {
         threshold: 1,
         subconditions: vec![Preimage { preimage: vec![] }],
@@ -72,7 +67,7 @@ test_vectors!(
     test_1000_minimal_eval,
     cond_1000
 );
-fn cond_1000(val: &Value) -> Condition {
+fn cond_1000(_val: &Value) -> Condition {
     Eval { code: "5445535401".from_hex().unwrap() }
 }
 test_vectors!(

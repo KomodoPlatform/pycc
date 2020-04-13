@@ -24,10 +24,38 @@ create_tx = Tx(
     ],
     outputs = [
         TxOut(1000000, ScriptPubKey.from_condition(cond)),
-        TxOut.op_return(b"faucet.create")
+        TxOut.op_return(encode_params(["faucet.create", hex_decode(keypair['pubkey'])]))
     ]
 )
 create_tx.sign([keypair['wif']])
+
+
+def test_validate_create():
+    o = app.cc_eval({}, create_tx.encode_bin(), 0, b"_")
+
+    assert o == {
+        'txid': '251d47575d69996006d29e2b4f14608795842008992a740dc6c701a3045b62af',
+        'inputs': [
+            {
+                'previous_output': ('d21633ba23f70118185227be58a63527675641ad37967e2aa461559f577aec43', 0),
+                'address': {
+                    'address': 'RWqrNbM3gUr4A9kX9sMXTRyRbviLsSbjAs',
+                    'pubkey': '038c3d482cd29f75ce997737705fb5287f022ded66093ee7d929aea100c5ef8a63',
+                    'signature': '304402200ff7281dc16a4f9e13c4ec653e86cc59c50235621112338c130b74a5547d41dc02203470c46140047811f3fc143daba8cec42d83271c20b8f1b6b3384606bc36391401'
+                }
+            },
+        ],
+        'outputs': [
+            {
+                'amount': 0,
+                'condition': {
+                    'type': 'threshold-sha-256',
+                    'threshold': 2,
+                    'subconditions': [{'code': '5f', 'type': 'eval-sha-256'}, {'pubkey': '038c3d482cd29f75ce997737705fb5287f022ded66093ee7d929aea100c5ef8a63', 'type': 'secp256k1-sha-256'}],
+                }
+            }
+        ],
+    }
 
 
 drip_tx = Tx(
@@ -42,14 +70,6 @@ drip_tx = Tx(
 )
 
 drip_tx.sign([keypair['wif']], [create_tx])
-
-# def test_validate_create():
-#     o = app.cc_eval({}, create_tx.encode_bin(), 0, b"_")
-#     assert o == {
-#         "inputs": [{"address": keypair['addr'], "txid": txid_1, "idx": 0}],
-#         "outputs": [{"amount": 1000000}],
-#         "txid": create_tx.hash
-#     }
 
 
 # def test_validate_drip():

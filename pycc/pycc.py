@@ -33,15 +33,9 @@ def get_opret(tx):
     assert not data is None, "opret not present"
     return data
 
-def get_model_path(opret_data):
-    assert 'tx' in opret_data
-    path = opret_data['tx'].decode().split('.')
-    assert len(path) == 2
-    return path
 
-
-def get_model(schema, opret):
-    (module_name, model_name) = get_model_path(opret)
+def get_model(schema, path):
+    (module_name, model_name) = path.split('.', 2)
 
     assert module_name in schema, ("unknown module: %s" % module_name)
     module = schema[module_name]
@@ -59,20 +53,20 @@ class CCApp:
 
     def cc_eval(self, chain, tx_bin, n_in, eval_prefix):
         tx = Tx.decode_bin(tx_bin)
-        params = {"tx": get_opret(tx)}
-        ctx = EvalContext(eval_prefix, self.schema, params, chain)
-        model = get_model(self.schema, params)
+        stack = decode_params(get_opret(tx))
+        model = get_model(self.schema, stack.pop(0))
+        ctx = EvalContext(tx, eval_prefix, self.schema, {}, chain, stack)
         txdata = {"txid": tx.hash, "inputs":[], "outputs":[]}
 
-        inputs = list(tx.inputs)
+        input_nums = list(range(len(tx.inputs)))
         for vin in model['inputs']:
-            txdata['inputs'].append(vin.consume_inputs(ctx, inputs))
-        assert not inputs, "leftover inputs"
+            txdata['inputs'].append(vin.consume_inputs(ctx, input_nums))
+        assert not input_nums, "leftover inputs"
 
-        outputs = list(tx.outputs)
+        output_nums = list(range(len(tx.outputs) - 1))
         for vout in model['outputs']:
-            txdata['outputs'].append(vout.consume_outputs(ctx, outputs))
-        assert not outputs, "leftover outputs"
+            txdata['outputs'].append(vout.consume_outputs(ctx, output_nums))
+        assert not output_nums, "leftover outputs"
 
         if 'validate' in model:
             model['validate'](ctx, txdata)
@@ -97,8 +91,14 @@ class CCApp:
         return out
 
 
+def encode_params(params):
+    return repr(params).encode()
 
-class EvalContext(namedtuple("EvalContext", 'code,schema,params,chain')):
+def decode_params(b):
+    return eval(b)
+
+
+class EvalContext(namedtuple("EvalContext", 'tx,code,schema,params,chain,stack')):
     pass
 
 
@@ -107,10 +107,10 @@ class Output:
         self.script = script
         self.amount = amount or AnyAmount()
 
-    def consume_outputs(self, ctx, outputs):
-        output = outputs.pop(0)
-        r = self.script.consume_output(ctx, output['script']) or {}
-        r['amount'] = self.amount.consume(ctx, output['amount'])
+    def consume_outputs(self, ctx, nums):
+        i = nums.pop(0)
+        r = self.script.consume_output(ctx, i) or {}
+        r['amount'] = self.amount.consume(ctx, i)
         return r
 
 
@@ -118,25 +118,19 @@ class Input:
     def __init__(self, script):
         self.script = script
 
-    def consume_inputs(self, ctx, inputs):
-        inp = inputs.pop(0)
-        r = self.script.consume_input(ctx, inp.script) or {}
-        r['txid'] = inp['txid']
-        r['idx'] = inp['idx']
+    def consume_inputs(self, ctx, nums):
+        i = nums.pop(0)
+        r = self.script.consume_input(ctx, i) or {}
+        r['previous_output'] = ctx.tx.inputs[i].previous_output
         return r
 
 
 class P2PKH:
-    def consume_input(self, ctx, script):
-        import pdb; pdb.set_trace()
-        return {"address": script['address']}
+    def consume_input(self, ctx, i):
+        return ctx.tx.inputs[i].script.parse_p2pkh()
 
-    def consume_output(self, ctx, script):
-        return {"address": script['address']}
-
-    @staticmethod
-    def script_sig(addr):
-        return ScriptSig.from_address(addr)
+    def consume_output(self, ctx, i):
+        return ctx.tx.outputs[i].script.parse_p2pkh()
 
 
 class InputAmount:
@@ -164,12 +158,12 @@ class CCEval(namedtuple("CCEval", 'name,idx')):
     It needs to be able to write an eval code that
     will route back to a function. So it needs contextual information.
     """
-    def consume_output(self, ctx, script):
-        assert script == {
-            "condition": encode_condition({
-                "type": "eval-sha-256",
-                "code": hex_encode(ctx.code)
-            })
+    def consume_output(self, ctx, i):
+        cond = cc_threshold(2, 
+            [cc_eval(ctx.code), cc_secp256k1(hex_encode(ctx.stack.pop(0)))])
+        assert ctx.tx.outputs[i].script.parse_condition().is_same_condition(cond.to_anon())
+        return {
+            "condition": cond.to_py()
         }
 
     def consume_input(self, ctx, script):

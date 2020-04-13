@@ -23,6 +23,7 @@ keys = { git = "https://github.com/ssadler/parity-bitcoin.git" }
 primitives = { git = "https://github.com/ssadler/parity-bitcoin.git" }
 script = { git = "https://github.com/ssadler/parity-bitcoin.git" }
 serialization = { git = "https://github.com/ssadler/parity-bitcoin.git" }
+bitcrypto = { git = "https://github.com/ssadler/parity-bitcoin.git" }
 cryptoconditions = { path = "./cryptoconditions" }
 libsecp256k1 = "0.2.2"
 rustc-hex = "2"

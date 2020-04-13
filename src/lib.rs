@@ -7,6 +7,7 @@ extern crate keys as kk;
 mod transaction;
 mod script;
 mod exceptions;
+mod keys;
 
 use pyo3::{prelude::*};
 

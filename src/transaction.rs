@@ -100,7 +100,7 @@ impl TxOut {
 
     #[staticmethod]
     fn op_return(data: &[u8]) -> Self {
-        Self::new(0, &ScriptPubKey::from_opret_data(data))
+         Self::new(0, &ScriptPubKey::from_opret_data(data))
     }
 }
 

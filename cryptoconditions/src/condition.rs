@@ -201,6 +201,15 @@ impl Condition {
         };
         Ok(())
     }
+
+    pub fn to_anon(&self) -> Condition {
+        Anon {
+            cond_type: self.get_type(),
+            fingerprint: self.fingerprint(),
+            cost: self.cost(),
+            subtypes: self.get_subtypes()
+        }
+    }
 }
 
 type R = Result<ASN1Block, String>;
@@ -338,7 +347,7 @@ use internal::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustc_hex::{FromHex, ToHex};
+    use rustc_hex::ToHex;
 
     #[test]
     fn test_pack_cost() {

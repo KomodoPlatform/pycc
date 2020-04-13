@@ -6,6 +6,9 @@ use rustc_hex::{FromHex, ToHex};
 use ss::{Script, Builder};
 use primitives::hash as hash;
 
+use crate::keys::*;
+use crate::exceptions::*;
+
 
 #[pyclass]
 #[derive(PartialEq, Debug)]
@@ -29,8 +32,27 @@ impl ScriptPubKey {
         None
     }
 
-    pub fn into_vec(&self) -> Vec<u8> {
-        self.script.to_vec()
+    pub fn parse_p2pkh(&self, py: Python) -> PyResult<PyObject> {
+        if self.script.is_pay_to_public_key_hash() {
+            let hash_data = self.script.take(3, 20).unwrap();
+            let addr = to_kmd_address(hash::H160::from(hash_data));
+            let d = PyDict::new(py);
+            d.set_item("address", addr.to_string())?;
+            Ok(d.into())
+        } else {
+            Err(UnexpectedScriptPubkey::py_err(format!("{:?}", self.script.script_type())))
+        }
+    }
+
+    pub fn parse_condition(&self) -> PyResult<PyCondition> {
+        let u = UnexpectedScriptPubkey::py_err;
+        match self.script.get_instruction(0).map_err(|_| u("Could not get condition from script pubkey"))? {
+            ss::Instruction { data: Some(conddata), step, .. } 
+                if self.script.len() == (step + 1) && self.script[step] == 0xcc => {
+                    Ok(PyCondition { cond: cc::decode_condition(conddata).map_err(|_| u("Invalid condition pubkey"))? })
+            },
+            _ => Err(u("Invalid condition script pubkey"))
+        }
     }
 
     #[staticmethod]
@@ -45,7 +67,13 @@ impl ScriptPubKey {
 
     #[staticmethod]
     pub fn from_opret_data(data: &[u8]) -> Self {
-        Self { script: Builder::build_nulldata(data) }
+        Self { script: Builder::default().push_opcode(ss::Opcode::OP_RETURN).push_data(data).into_script() }
+    }
+}
+
+impl ScriptPubKey {
+    pub fn into_vec(&self) -> Vec<u8> {
+        self.script.to_vec()
     }
 }
 
@@ -76,21 +104,21 @@ pub enum ScriptSigInner {
         condition: PyCondition
     },
     SigBytes {
-        script: Vec<u8>
+        script: ss::Script
     }
 }
 
 #[pyclass]
 #[derive(PartialEq, Clone, Debug)]
 pub struct ScriptSig {
-    script: ScriptSigInner
+    inner: ScriptSigInner
 }
 
 #[pymethods]
 impl ScriptSig {
     #[new]
     pub fn new(s: Vec<u8>) -> Self {
-        Self { script: SigBytes { script: s } }
+        Self { inner: SigBytes { script: ss::Script::from(s) } }
     }
 
     pub fn to_py(&self, py: Python) -> PyResult<PyObject> {
@@ -101,7 +129,7 @@ impl ScriptSig {
             Ok(d.into())
         };
 
-        match &self.script {
+        match &self.inner {
             AddressSig { address, signature } => {
                 let inner = PyDict::new(py);
                 inner.set_item("address", address.to_string())?;
@@ -123,14 +151,41 @@ impl ScriptSig {
         }
     }
 
+    pub fn parse_p2pkh(&self, py: Python) -> PyResult<PyObject> {
+        let u = UnexpectedScriptSig::py_err;
+        match &self.inner {
+            SigBytes { script } => {
+                match script.get_instruction(0).map_err(|_| u("Could not get sig from script sig"))? {
+                    ss::Instruction { data: Some(sigdata), step, .. } => {
+                        let step0 = step;
+                        let sig = kk::Signature::from(sigdata);
+                        match script.get_instruction(step).map_err(|_| u("Could not get pk from script sig"))? {
+                            ss::Instruction { data: Some(pkdata), step, .. } => {
+                                if step0 + step != (&script).len() {
+                                    return Err(u("Invalid p2pkh script"));
+                                }
+                                let pubkey = kk::Public::from_slice(pkdata).map_err(|_| u("Invalid pubkey"))?;
+                                let address = to_kmd_address(pubkey.address_hash());
+                                Ok(ScriptSig { inner: AddressSig { address, signature: Some((pubkey, sig)) } }.to_py(py)?)
+                            },
+                            _ => Err(u("Could not get pk from script sig"))
+                        }
+                    },
+                    _ => Err(u("Could not get sig from script sig"))
+                }
+            },
+            _ => Err(u("Expected signed script"))
+        }
+    }
+
     #[staticmethod]
     pub fn from_address(address: &str) -> PyResult<Self> {
-        Ok(Self { script: AddressSig { address: parse_address(address)?, signature: None } })
+        Ok(Self { inner: AddressSig { address: parse_address(address)?, signature: None } })
     }
 
     #[staticmethod]
     pub fn from_condition(condition: PyCondition) -> Self {
-        Self { script: ConditionSig { condition } }
+        Self { inner: ConditionSig { condition } }
     }
 }
 
@@ -141,7 +196,7 @@ impl ScriptSig {
             v.push(1);
             v
         };
-        match &self.script {
+        match &self.inner {
             AddressSig { signature: Some((public, sig)), .. } => {
                 Some(Builder::default().push_data(&append_hash_type(&**sig)).push_data(&**public).into_script())
             }
@@ -157,7 +212,7 @@ impl ScriptSig {
     }
 
     pub fn to_pubkey_script(&self) -> PyResult<Script> {
-        match &self.script {
+        match &self.inner {
             AddressSig { address, .. } => Ok(ScriptPubKey::from(address).script),
             ConditionSig { condition } => Ok(ScriptPubKey::from(condition).script),
             SigBytes { .. } => Err(exceptions::ValueError::py_err("Cannot convert SigBytes to pubkey"))
@@ -165,7 +220,7 @@ impl ScriptSig {
     }
 
     pub fn sign(&mut self, sighash: &hash::H256, private: &kk::Private) -> Result<(), kk::Error> {
-        match &mut self.script {
+        match &mut self.inner {
             AddressSig { address, ref mut signature } => {
                 let public = kk::KeyPair::from_private(private.clone())?.public().clone();
                 if public.address_hash() == address.hash {
@@ -185,13 +240,19 @@ impl ScriptSig {
 
 impl From<&[u8]> for ScriptSig {
     fn from(bytes: &[u8]) -> ScriptSig {
-        ScriptSig { script: SigBytes { script: bytes.to_vec() } }
+        ScriptSig { inner: SigBytes { script: ss::Script::from(bytes.to_vec()) } }
     }
 }
 
 impl From<cc::Condition> for ScriptSig {
     fn from(condition: cc::Condition) -> ScriptSig {
-        ScriptSig { script: ConditionSig { condition: PyCondition { cond: condition } } }
+        ScriptSig { inner: ConditionSig { condition: PyCondition { cond: condition } } }
+    }
+}
+
+impl From<&kk::Address> for ScriptSig {
+    fn from(address: &keys::Address) -> Self {
+        Self { inner: AddressSig { address: address.clone(), signature: None } }
     }
 }
 
@@ -246,6 +307,14 @@ impl PyCondition {
         let cond = cc::decode_fulfillment(&cond_bin).map_err(
             |_| exceptions::ValueError::py_err("Invalid fulfillment data"))?;
         Ok(Self { cond })
+    }
+
+    fn to_anon(&self) -> PyCondition {
+        return Self { cond: self.cond.to_anon() }
+    }
+
+    fn is_same_condition(&self, other: PyCondition) -> bool {
+        self.cond.encode_condition() == other.cond.encode_condition()
     }
 }
 
