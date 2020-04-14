@@ -201,6 +201,23 @@ def test_sapling_known_good():
     print(''.join(' ' if a == b else '!' for (a, b) in zip(mtx.encode(), rawtx)))
     assert mtx.encode() == rawtx
 
+def test_sapling_spend():
+    addr = "RLiHfBnLqTiPcFr9TVPri338QU24ydAsQu"
+    wif = "UpXFeRt5fatwkjqFJinyh3pLuS9MQiQzn54NtbaBMHevdZCeS3ke"
+    input_amount = 1000000000000
+    
+    mtx = Tx(
+        inputs = [
+            TxIn(("adc3812216c9e2d6e54cf2581348daf96be6f77098cf496fcbd142c8388f72b5", 1),
+                 ScriptSig.from_address(addr),
+                 input_amount=input_amount)
+        ],
+        outputs = [
+            TxOut(input_amount-10000, ScriptPubKey.from_address(addr))
+        ]
+    )
+    mtx.sign([wif])
+    assert mtx.hash == 'db1da66bd9b9d7d6c553a0ff64b8fb5cc4af29a4ed420891df6ca2cdb24cfbf3'
 
 
 
