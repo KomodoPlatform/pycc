@@ -209,7 +209,11 @@ impl Tx {
             kk::Private::from_str(s).map_err(|_| exceptions::ValueError::py_err("Cannot decode privkey WIF"))
             ).collect::<PyResult<Vec<kk::Private>>>()?;
 
+        let txver = self.tx.version;
         let get_input_amount = |i, input:&TxIn| {
+            if txver == 1 {
+                return Ok(0);
+            }
             let err = |s:&str| TxSignError::py_err(format!("Input {}: {}", i, s.to_string()));
 
             let amount0 = input.input_amount;
@@ -234,6 +238,7 @@ impl Tx {
         for input in &self.inputs {
             let mut inp = chain::TransactionInput::default();
             inp.previous_output = input.previous_output.clone();
+            inp.sequence = input.sequence;
             self.tx.inputs.push(inp);
         }
         let signer = ss::TransactionInputSigner::from(self.tx.clone());

@@ -135,3 +135,52 @@ def test_sign():
 
     tx.sign([keypair['wif']])
     tx.hash
+
+def test_spend_asset_tx_1():
+    rawtx = "010000000126f19af8dcb4ebe16c21a118d16acbe4fd066670e656274ffb35b0ea55dc7ca8010000006a473044022049083e4c5de4c6f21f872c5abfa6ab39092fc60999bf56493004ae9650d594e90220014fb041b34ed7c7ffbd4fc5b0e327a71245ee6bbd8c1fd794f32343f98e6bd601210281fa0af5067ad1680a462f71535da66f290bb3a2f8ea0fa180d255b21c0e0caefeffffff0278d5a435000000001976a91450ad72f95bea6f640a48c3b4a7a33930bdcc541088ac00e1f505000000001976a9144ac0524906dbeda34e9edfcb01c7a0f4e125b0f388acdbad8f5e"
+
+    wif = "UpWLKEQ1229EveQGTvr9qM5He8H8LARPFo9qoZxToswR2vkDAGQx"
+    addr = "RG6SUSPQZmQLoZmH9yMVywMX1wUgYzD4Tf"
+
+    mtx = Tx(
+        inputs = [
+            TxIn(("a87cdc55eab035fb4f2756e6706606fde4cb6ad118a1216ce1ebb4dcf89af126", 1),
+                 ScriptSig.from_address(addr), sequence=0xFFFFFFFE,
+                 input_amount=0)
+        ],
+	outputs = [
+            TxOut(amount = 899995000,
+                  script = ScriptPubKey.from_address("RGdmvKRX7ZsPkcWVuJADeEkruofZm963Gm")),
+            TxOut(amount = 100000000,
+                  script = ScriptPubKey.from_address("RG6SUSPQZmQLoZmH9yMVywMX1wUgYzD4Tf"))
+        ],
+        version = 1
+    )
+    mtx.lock_time = 1586474459
+    mtx.sign([wif], [])
+    assert mtx.encode() == rawtx
+    
+def test_spend_asset_tx_2():
+    prevout = ("80add174937a475aebf7f5a93827f0f6565098ec5078ad7ac5c4bf7fe915696d", 1)
+    wif = "UpWLKEQ1229EveQGTvr9qM5He8H8LARPFo9qoZxToswR2vkDAGQx"
+    addr = "RG6SUSPQZmQLoZmH9yMVywMX1wUgYzD4Tf"
+    
+    mtx = Tx(
+        inputs = [
+            TxIn(prevout, ScriptSig.from_address(addr))
+        ],
+	outputs = [
+            TxOut(amount = 899995000,
+                  script = ScriptPubKey.from_address(addr))
+        ],
+        version = 1
+    )
+
+    mtx.sign([wif])
+
+    assert mtx.hash == "2671d6f77f7d1c38c804d0531137752ad6b8ce088646ca8a0e225860059a5588"
+
+
+
+
+
