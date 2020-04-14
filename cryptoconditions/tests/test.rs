@@ -34,6 +34,9 @@ macro_rules! test_vectors {
             );
 
             assert_eq!(
+                cond.encode_condition(), cond.to_anon().encode_condition());
+
+            assert_eq!(
                 Ok(cond), decode_fulfillment(&from_hex(data["fulfillment"].as_str().unwrap())));
         }
     };

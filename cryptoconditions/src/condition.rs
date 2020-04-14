@@ -134,7 +134,7 @@ impl Condition {
     }
 
     fn has_subtypes(&self) -> bool {
-        return self.get_type().has_subtypes();
+        self.get_type().has_subtypes()
     }
 
     fn get_subtypes(&self) -> HashSet<u8> {
@@ -150,6 +150,7 @@ impl Condition {
                 set.remove(&self.get_type().id());
                 set
             }
+            Anon { subtypes, .. } => subtypes.clone(),
             _ => HashSet::new(),
         }
     }
@@ -256,7 +257,7 @@ fn threshold_fulfillment_asn(threshold: u16, subconditions: &Vec<Condition>) -> 
 }
 
 fn x690sort(asns: &mut Vec<ASN1Block>) {
-    asns.sort_by(|a, b| {
+    asns.sort_by(|b, a| { // reversed
         let va = encode_asn(a);
         let vb = encode_asn(b);
         va.len().cmp(&vb.len()).then_with(|| va.cmp(&vb))
@@ -347,7 +348,7 @@ use internal::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustc_hex::ToHex;
+    use rustc_hex::{FromHex, ToHex};
 
     #[test]
     fn test_pack_cost() {
@@ -379,4 +380,29 @@ mod tests {
             "000001"
         );
     }
+
+    #[test]
+    fn test_encode_complex() {
+        let pk = "03682b255c40d0cde8faee381a1a50bbb89980ff24539cb8518e294d3a63cefe12".from_hex::<Vec<u8>>().unwrap();
+        let cond = Threshold {
+            threshold: 2,
+            subconditions: vec![
+                Threshold {
+                    threshold: 1,
+                    subconditions: vec![
+                        Secp256k1 {
+                            pubkey: PublicKey::parse_slice(&pk, None).unwrap(),
+                            signature: None
+                        }
+                    ]
+                },
+                Eval { code: vec![228] }
+            ]
+        };
+
+        assert_eq!(
+            cond.encode_condition(),
+            cond.to_anon().encode_condition());
+    }
+
 }
