@@ -178,6 +178,24 @@ impl ScriptSig {
         }
     }
 
+    pub fn parse_condition(&self) -> PyResult<PyCondition> {
+        let u = UnexpectedScriptSig::py_err;
+        match &self.inner {
+            SigBytes { script } => {
+                match script.get_instruction(0).map_err(|_| u("Could not get cc from script sig"))? {
+                    ss::Instruction { data: Some(ffill), step, .. } => {
+                        if step != (&script).len() {
+                            return Err(u("Invalid cc script"));
+                        }
+                        PyCondition::decode_fulfillment_bin(&ffill[..ffill.len()-1])
+                    },
+                    _ => Err(u("Could not get cc from script sig"))
+                }
+            },
+            _ => Err(u("Expected signed script"))
+        }
+    }
+
     #[staticmethod]
     pub fn from_address(address: &str) -> PyResult<Self> {
         Ok(Self { inner: AddressSig { address: parse_address(address)?, signature: None } })
@@ -304,9 +322,24 @@ impl PyCondition {
     fn decode_fulfillment(condition_hex: String) -> PyResult<Self> {
         let cond_bin = condition_hex.from_hex::<Vec<u8>>().map_err(
             |e| exceptions::ValueError::py_err(e.to_string()))?;
-        let cond = cc::decode_fulfillment(&cond_bin).map_err(
+        Self::decode_fulfillment_bin(&cond_bin)
+    }
+
+    #[staticmethod]
+    fn decode_fulfillment_bin(condition_bin: &[u8]) -> PyResult<Self> {
+        let cond = cc::decode_fulfillment(condition_bin).map_err(
             |_| exceptions::ValueError::py_err("Invalid fulfillment data"))?;
         Ok(Self { cond })
+    }
+
+    fn encode_condition(&self, py: Python) -> PyResult<PyObject> {
+        Ok(PyBytes::new(py, &self.cond.encode_condition()).into())
+    }
+
+    fn encode_fulfillment(&self, py: Python) -> PyResult<PyObject> {
+        let ffill = self.cond.encode_fulfillment().map_err(|e|
+            CCEncodeError::py_err(e.to_string()))?;
+        Ok(PyBytes::new(py, &ffill).into())
     }
 
     fn to_anon(&self) -> PyCondition {

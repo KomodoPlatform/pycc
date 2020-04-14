@@ -196,9 +196,6 @@ def test_sapling_known_good():
         outputs = tx_in.outputs
     )
     mtx.sign([wif])
-    print(mtx.encode())
-    print(rawtx)
-    print(''.join(' ' if a == b else '!' for (a, b) in zip(mtx.encode(), rawtx)))
     assert mtx.encode() == rawtx
 
 def test_sapling_spend():
@@ -220,5 +217,15 @@ def test_sapling_spend():
     assert mtx.hash == 'db1da66bd9b9d7d6c553a0ff64b8fb5cc4af29a4ed420891df6ca2cdb24cfbf3'
 
 
+def test_cc_tx():
+    txbin = "0100000001c66ef7581dd99b512e968fc3d646f1b707fa35a3b13f651f34d266ac382de614000000007b4c79a276a072a26ba067a565802103682b255c40d0cde8faee381a1a50bbb89980ff24539cb8518e294d3a63cefe1281401fa48a63559e0ac4217e107ca9b1e33c174a5240def4b9029b80f744984585b45c5c68f6a3cdd9dbe386ca562f7821dbc27ade213d68e775e8941508e5e81013a100af038001e4a10001ffffffff037026735302000000302ea22c8020e029c511da55523565835887e412e5a0c9b920801b007000df45e545f25028248103120c008203000401cc8096980000000000232103d52f33d23c236621de78be5263550fe7aa4f78c13d7992e233761697ac0ce7f6ac0000000000000000086a06e4470200000000000000"
 
+    faucet_pk = "03682b255c40d0cde8faee381a1a50bbb89980ff24539cb8518e294d3a63cefe12"
+    cond = cc_threshold(2,[cc_eval(bytes([228])),cc_threshold(1,[cc_secp256k1(faucet_pk)])])
 
+    tx = Tx.decode(txbin)
+    cond_in = tx.inputs[0].script.parse_condition()
+    cond_out = tx.outputs[0].script.parse_condition()
+
+    assert cond_in.to_anon().to_py() == cond.to_anon().to_py()
+    assert cond_out.to_anon().to_py() == cond.to_anon().to_py()
