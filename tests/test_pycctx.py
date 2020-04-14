@@ -178,7 +178,28 @@ def test_spend_asset_tx_2():
 
     mtx.sign([wif])
 
-    assert mtx.hash == "2671d6f77f7d1c38c804d0531137752ad6b8ce088646ca8a0e225860059a5588"
+    assert mtx.encode() == "01000000016d6915e97fbfc4c57aad7850ec985056f6f02738a9f5f7eb5a477a9374d1ad80010000006a47304402202fcb2329e5d7a7d478cd7a7a876ec65e639458aef68e2cb0e51b66afb7c1ca7302205803fd35b4801cc88eb656c1a3660bd21ae2a061fbaa25e5aa47ed5e05288a3601210281fa0af5067ad1680a462f71535da66f290bb3a2f8ea0fa180d255b21c0e0caeffffffff0178d5a435000000001976a9144ac0524906dbeda34e9edfcb01c7a0f4e125b0f388ac00000000"
+
+
+def test_sapling_known_good():
+    rawtx = "0400008085202f89019070433375037d2a4a367d802fecd4f378ffa382d810e9a0461d05170b959184010000006b48304502210087bfa06512394890d44ea2884256f26d57f4e09723d096657d6e2f3814834e29022000cdfc1c1eb2b9d338b3e056fefdbbbf7f0354428ff420cbf8a203f76decd60201210386c12f36b585898dc4e6bc3e94a2fa6cdca45dc0e507797b59095548f8640892ffffffff0100e1f505000000001976a9145c04c6834cf94ba95110bcb92e8be7e0af4e03a388ac00000000f60000000000000000000000000000"
+    wif = "UtVEQjd6qiEab5cB6ZSCi6yDj1QTND4DZJYRfKw77WbfPoTihBhV"
+    addr = "RHfjxy6L2FRc6NQmiKfPS7GkqHuEHg6dQC"
+
+    tx_in = Tx.decode(rawtx)
+
+    mtx = Tx(
+        expiry_height = 246,
+        inputs = [
+            TxIn(tx_in.inputs[0].previous_output, ScriptSig.from_address(addr), input_amount=100000000)
+        ],
+        outputs = tx_in.outputs
+    )
+    mtx.sign([wif])
+    print(mtx.encode())
+    print(rawtx)
+    print(''.join(' ' if a == b else '!' for (a, b) in zip(mtx.encode(), rawtx)))
+    assert mtx.encode() == rawtx
 
 
 

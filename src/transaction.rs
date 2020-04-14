@@ -233,20 +233,26 @@ impl Tx {
             amount0.ok_or_else(|| err("Input value not provided"))
         };
 
-        // Create a copy of the inner tx and give it dummy inputs
-        self.tx.inputs.truncate(0);
-        for input in &self.inputs {
-            let mut inp = chain::TransactionInput::default();
-            inp.previous_output = input.previous_output.clone();
-            inp.sequence = input.sequence;
-            self.tx.inputs.push(inp);
+        // Create signer
+        let mut signer = ss::TransactionInputSigner::from(self.tx.clone());
+        if txver >= 3 {
+            signer.consensus_branch_id = 0x76b809bb;
         }
-        let signer = ss::TransactionInputSigner::from(self.tx.clone());
+        signer.inputs.truncate(0);
+        for (i, input) in self.inputs.iter().enumerate() {
+            signer.inputs.push(
+                ss::UnsignedTransactionInput {
+                    previous_output: input.previous_output.clone(),
+                    sequence: input.sequence,
+                    amount: get_input_amount(i, input)?
+                }
+            );
+        }
 
         // Sign all the inputs
         for (i, input) in self.inputs.iter_mut().enumerate() {
             let pubkey = input.script.to_pubkey_script()?;
-            let amount = get_input_amount(i, input)?;
+            let amount = signer.inputs[i].amount;
             let sighash = signer.signature_hash(i as usize, amount, &pubkey, ss::SignatureVersion::Base, 1);
             for key in &privkeys {
                 input.script.sign(&sighash, &key).map_err(to_py_err)?;
