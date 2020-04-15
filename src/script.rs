@@ -61,6 +61,15 @@ impl ScriptPubKey {
     }
 
     #[staticmethod]
+    pub fn from_pubkey(pubkey_hex: &str) -> PyResult<Self> {
+        let pubkey_bin = pubkey_hex.from_hex::<Vec<u8>>().map_err(|_|
+            exceptions::ValueError::py_err("Invalid pubkey hex"))?;
+        let pubkey = kk::Public::from_slice(&pubkey_bin).map_err(|_|
+            exceptions::ValueError::py_err("Invalid pubkey"))?;
+        Ok(Self::from(&pubkey))
+    }
+
+    #[staticmethod]
     pub fn from_condition(cond: PyCondition) -> Self {
         Self::from(&cond)
     }
@@ -91,6 +100,12 @@ impl From<&PyCondition> for ScriptPubKey {
     }
 }
 
+impl From<&kk::Public> for ScriptPubKey {
+    fn from(pk: &kk::Public) -> Self {
+        Self { script: Builder::default().push_bytes(&**pk).push_opcode(ss::Opcode::OP_CHECKSIG).into_script() }
+    }
+}
+
 
 use ScriptSigInner::*;
 
@@ -99,6 +114,10 @@ pub enum ScriptSigInner {
     AddressSig {
         address: kk::Address,
         signature: Option<(kk::Public, kk::Signature)>
+    },
+    PubkeySig {
+        pubkey: kk::Public,
+        signature: Option<kk::Signature>
     },
     ConditionSig {
         condition: PyCondition
@@ -142,6 +161,18 @@ impl ScriptSig {
                 };
                 f("address", inner.into())
             },
+            PubkeySig { pubkey, signature } => {
+                let inner = PyDict::new(py);
+                inner.set_item("pubkey", pubkey.to_string())?;
+                match signature {
+                    Some(sig) => {
+                        inner.set_item("signature", sig.to_string())?;
+                    },
+                    _ => ()
+                };
+                f("pubkey", inner.into())
+
+            }
             ConditionSig { condition } => {
                 f("condition", condition.to_py(py)?)
             },
@@ -202,6 +233,15 @@ impl ScriptSig {
     }
 
     #[staticmethod]
+    pub fn from_pubkey(pubkey_hex: &str) -> PyResult<Self> {
+        let pubkey_bin = pubkey_hex.from_hex::<Vec<u8>>().map_err(|_|
+            exceptions::ValueError::py_err("Invalid pubkey hex"))?;
+        let pubkey = kk::Public::from_slice(&pubkey_bin).map_err(|_|
+            exceptions::ValueError::py_err("Invalid pubkey"))?;
+        Ok(Self { inner: PubkeySig { pubkey, signature: None } })
+    }
+
+    #[staticmethod]
     pub fn from_condition(condition: PyCondition) -> Self {
         Self { inner: ConditionSig { condition } }
     }
@@ -218,6 +258,9 @@ impl ScriptSig {
             AddressSig { signature: Some((public, sig)), .. } => {
                 Some(Builder::default().push_data(&append_hash_type(&**sig)).push_data(&**public).into_script())
             }
+            PubkeySig { signature: Some(sig), .. } => {
+                Some(Builder::default().push_data(&append_hash_type(&**sig)).into_script())
+            },
             ConditionSig { condition } => {
                 match condition.cond.encode_fulfillment() {
                     Ok(ffill) => Some(Builder::default().push_data(&append_hash_type(&ffill)).into_script()),
@@ -232,6 +275,7 @@ impl ScriptSig {
     pub fn to_pubkey_script(&self) -> PyResult<Script> {
         match &self.inner {
             AddressSig { address, .. } => Ok(ScriptPubKey::from(address).script),
+            PubkeySig { pubkey, .. } => Ok(ScriptPubKey::from(pubkey).script),
             ConditionSig { condition } => Ok(ScriptPubKey::from(condition).script),
             SigBytes { .. } => Err(exceptions::ValueError::py_err("Cannot convert SigBytes to pubkey"))
         }
@@ -243,6 +287,11 @@ impl ScriptSig {
                 let public = kk::KeyPair::from_private(private.clone())?.public().clone();
                 if public.address_hash() == address.hash {
                     *signature = Some((public, private.sign(sighash)?));
+                }
+            },
+            PubkeySig { pubkey, ref mut signature } => {
+                if pubkey == kk::KeyPair::from_private(private.clone())?.public() {
+                    *signature = Some(private.sign(sighash)?);
                 }
             },
             ConditionSig { condition } => {
