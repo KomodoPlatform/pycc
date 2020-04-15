@@ -207,7 +207,7 @@ impl Tx {
     fn sign(&mut self, wifs: Vec<String>, input_txs: Vec<Tx>) -> PyResult<()> {
         let privkeys: Vec<kk::Private> = wifs.iter().map(|s|
             kk::Private::from_str(s).map_err(|_| exceptions::ValueError::py_err("Cannot decode privkey WIF"))
-            ).collect::<PyResult<Vec<kk::Private>>>()?;
+            ).collect::<PyResult<_>>()?;
 
         let txver = self.tx.version;
         let get_input_amount = |i, input:&TxIn| {
@@ -238,16 +238,13 @@ impl Tx {
         if txver >= 3 {
             signer.consensus_branch_id = 0x76b809bb;
         }
-        signer.inputs.truncate(0);
-        for (i, input) in self.inputs.iter().enumerate() {
-            signer.inputs.push(
-                ss::UnsignedTransactionInput {
-                    previous_output: input.previous_output.clone(),
-                    sequence: input.sequence,
-                    amount: get_input_amount(i, input)?
-                }
-            );
-        }
+        signer.inputs = self.inputs.iter().enumerate().map(|(i, input)|
+            Ok(ss::UnsignedTransactionInput {
+                previous_output: input.previous_output.clone(),
+                sequence: input.sequence,
+                amount: get_input_amount(i, input)?
+            })
+        ).collect::<PyResult<_>>()?;
 
         // Sign all the inputs
         for (i, input) in self.inputs.iter_mut().enumerate() {

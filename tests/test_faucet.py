@@ -34,14 +34,14 @@ def test_validate_create():
     o = app.cc_eval({}, create_tx.encode_bin(), 0, b"_")
 
     assert o == {
-        'txid': '83358a4d6068dbf2404679dfa2f43cf9c7bc64cd6494e8ba47810fd7f97c6476',
+        'txid': '90825edaa47b64b8fa57943769ebe27105868a10ae9d1be6561a7b51b75870ab',
         'inputs': [
             {
                 'previous_output': ('d21633ba23f70118185227be58a63527675641ad37967e2aa461559f577aec43', 0),
                 'address': {
                     'address': 'RWqrNbM3gUr4A9kX9sMXTRyRbviLsSbjAs',
                     'pubkey': '038c3d482cd29f75ce997737705fb5287f022ded66093ee7d929aea100c5ef8a63',
-                    'signature': '3045022100e3e3e334f737f12a105daf8f978033aed117398a8c27c8a042f30992e61b32fe0220130d887e40f8ac2b2e472eff881960199709b879f31bc0c13ec8089b6f373d0301'
+                    'signature': '304402206774f82b132a61c601d136f71ae35d84721bf95642e18934c2f05d51d2a7914002206f480eb0a8254abe6b457cef26804a2782ef6af7e61ede4b0c73c38b67246d6601'
                 }
             },
         ],
