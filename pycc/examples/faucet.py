@@ -15,7 +15,7 @@ schema = {
         },
         "drip": {
             "inputs": [
-                Input(SpendBy("faucet.drip", 0))
+                Input(SpendBy("faucet.drip", 0)) # TODO: Ref instead of SpendBy
             ],
             "outputs": [
                 Output(SpendBy("faucet.drip", 0), RelativeAmount(0) - 1000),

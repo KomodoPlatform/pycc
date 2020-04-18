@@ -192,9 +192,7 @@ impl ScriptSig {
                     _ => Err(u("Could not get sig from script sig"))
                 }
             },
-            AddressSig { address, signature: Some((pk, sig)) } => {
-                Ok(self.to_py(py)?)
-            },
+            AddressSig { address, signature: Some((pk, sig)) } => Ok(self.to_py(py)?),
             _ => Err(u("Expected signed script"))
         }
     }
@@ -213,6 +211,7 @@ impl ScriptSig {
                     _ => Err(u("Could not get cc from script sig"))
                 }
             },
+            ConditionSig { condition } => Ok(condition.clone()),
             _ => Err(u("Expected signed script"))
         }
     }

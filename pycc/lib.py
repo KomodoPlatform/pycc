@@ -116,29 +116,34 @@ class P2PKH:
         return ScriptPubKey.from_address(addr)
 
 
-class SpendBy(namedtuple("Eval", 'name,idx')):
+class SpendBy(namedtuple("SpendBy", 'name,idx')):
     """
-    CCEdge is an output that encodes a validation that the spending
-    transaction corresponds to a certain type of model.
+    SpendBy ensures that an output is spent by a given type of input
+    """
+    def _eq(self, other):
+        return self.name == other.name and self.idx == other.idx
 
-    It needs to be able to write an eval code that
-    will route back to a function. So it needs contextual information.
-    """
-    def consume_output(self, ctx, i):
+    def _check_cond(self, ctx, cond):
         pubkey = ctx.stack.pop()
-        cond = cc_threshold(2, [cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
-        assert ctx.tx.outputs[i].script.parse_condition().is_same_condition(cond)
-        return {
-            "pubkey": pubkey
-        }
+        c = cc_threshold(2, [cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
+        assert c.is_same_condition(cond)
+        return { "pubkey": pubkey }
+    
+    def consume_output(self, ctx, i):
+        return self._check_cond(ctx, ctx.tx.outputs[i].script.parse_condition())
 
     def consume_input(self, ctx, i):
-        pubkey = ctx.stack.pop()
-        cond = cc_threshold(2, [cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
-        assert ctx.tx.outputs[i].script.parse_condition().is_same_condition(cond)
-        return {
-            "pubkey": pubkey
-        }
+        r = self._check_cond(ctx, ctx.tx.inputs[i].script.parse_condition())
+        # Check output of parent tx to make sure link is correct
+        # TODO: support groups
+        for inp in (ctx.tx.inputs[i],):
+            p = inp.previous_output
+            # TODO: tx wrapper with model with methods like get_output_group etc
+            input_tx = ctx.chain.get_tx_confirmed(p[0])
+            stack = decode_params(get_opret(input_tx))
+            model = get_model(ctx.schema, stack[0])
+            assert model['outputs'][self.idx].script._eq(self)
+        return r
 
     def construct_output(self, ctx, i, params):
         pubkey = params['outputs'][i]['script']['pubkey']
