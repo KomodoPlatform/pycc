@@ -23,7 +23,7 @@ schema = {
         },
         "drip": {
             "inputs": [
-                Input(schema_link) # TODO: Ref instead of SpendBy
+                Input(schema_link)
             ],
             "outputs": [
                 Output(schema_link, RelativeAmount(0) - 1000),
