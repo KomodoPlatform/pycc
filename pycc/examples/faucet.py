@@ -32,3 +32,7 @@ schema = {
         },
     }
 }
+
+
+def cc_eval(chain, tx_bin, nIn, eval_code):
+    return CCApp(schema, eval_code, chain).cc_eval(tx_bin)
