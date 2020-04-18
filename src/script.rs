@@ -143,38 +143,25 @@ impl ScriptSig {
     pub fn to_py(&self, py: Python) -> PyResult<PyObject> {
         let d = PyDict::new(py);
 
-        let f = |k, o: PyObject| {
-            d.set_item(k, o)?;
-            Ok(d.into())
-        };
-
         match &self.inner {
             AddressSig { address, signature } => {
-                let inner = PyDict::new(py);
-                inner.set_item("address", address.to_string())?;
-                match signature {
-                    Some((public, sig)) => {
-                        inner.set_item("pubkey", public.to_string())?;
-                        inner.set_item("signature", sig.to_string())?;
-                    },
-                    _ => ()
+                d.set_item("address", address.to_string());;
+                if let Some((public, sig)) = signature {
+                    d.set_item("pubkey", public.to_string())?;
+                    d.set_item("signature", sig.to_string())?;
                 };
-                f("address", inner.into())
+                Ok(d.into())
             },
             PubkeySig { pubkey, signature } => {
-                let inner = PyDict::new(py);
-                inner.set_item("pubkey", pubkey.to_string())?;
-                match signature {
-                    Some(sig) => {
-                        inner.set_item("signature", sig.to_string())?;
-                    },
-                    _ => ()
-                };
-                f("pubkey", inner.into())
-
-            }
+                d.set_item("pubkey", pubkey.to_string())?;
+                if let Some(sig) = signature {
+                    d.set_item("signature", sig.to_string())?;
+                }
+                Ok(d.into())
+            },
             ConditionSig { condition } => {
-                f("condition", condition.to_py(py)?)
+                d.set_item("condition", condition.to_py(py)?)?;
+                Ok(d.into())
             },
             SigBytes { script } => {
                 Ok(PyBytes::new(py, &script).into())

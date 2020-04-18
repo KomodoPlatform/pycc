@@ -1,61 +1,26 @@
 
-import binascii
-import io
-import json
-import copy
-from collections import namedtuple
 
 from pycctx import *
-
-
-def py_to_hex(data):
-    return hex_encode(json.dumps(data, sort_keys=True))
-
-def hex_encode(data):
-    if hasattr(data, 'encode'):
-        data = data.encode()
-    return binascii.hexlify(data).decode()
-
-def hex_decode(data):
-    return binascii.unhexlify(data)
-
-def hex2py(hex_data):
-    return json.loads(hex_decode(hex_data))
-
-def py2hex(data):
-    return hex_encode(json.dumps(data))
-
-def get_opret(tx):
-    assert tx.outputs, "opret not present"
-    opret = tx.outputs[-1]
-    assert opret.amount == 0
-    data = opret.script.get_opret_data()
-    assert not data is None, "opret not present"
-    return data
-
-
-def get_model(schema, path):
-    (module_name, model_name) = path.split('.', 2)
-
-    assert module_name in schema, ("unknown module: %s" % module_name)
-    module = schema[module_name]
-
-    assert model_name in module, ("unknown tx: %s" % model_name)
-    return module.get(model_name)
+from pycc.lib import *
 
 
 class CCApp:
-    def __init__(self, schema):
+    def __init__(self, schema, eval_code):
         self.schema = schema
+        self.eval_code = eval_code
 
     def __call__(self, *args, **kwargs):
         return self.cc_eval(*args, **kwargs)
 
-    def cc_eval(self, chain, tx_bin, n_in, eval_prefix):
-        tx = Tx.decode_bin(tx_bin)
+    def cc_eval(self, chain, tx_bin):
+        return validate_tx(chain, Tx.decode_bin(tx_bin))
+
+    # Validate a TX
+    # Go TX -> Condensed
+    def validate_tx(self, chain, tx):
         stack = decode_params(get_opret(tx))
         model = get_model(self.schema, stack.pop(0))
-        ctx = EvalContext(tx, eval_prefix, self.schema, {}, chain, stack)
+        ctx = EvalContext(tx, self.eval_code, self.schema, {}, chain, stack)
         txdata = {"txid": tx.hash, "inputs":[], "outputs":[]}
 
         input_nums = list(range(len(tx.inputs)))
@@ -73,132 +38,28 @@ class CCApp:
 
         return txdata
 
-    def construct_tx(self, name, params):
+    # Create a TX
+    # Go Condensed -> TX
+    def create_tx(self, name, chain, params):
         parts = name.split('.')
         tpl = self.schema[parts[0]][parts[1]]
+        ctx = EvalContext(None, self.eval_code, self.schema, {}, chain, [])
 
-        out = {
-            "inputs": [],
-            "outputs": []
-        }
+        inputs = []
+        outputs = []
 
-        for (inp, param) in zip(tpl['inputs'], params['inputs']):
-            out['inputs'] += inp.construct(param)
+        assert len(params['inputs']) == len(tpl['inputs'])
+        for (i, inp) in enumerate(tpl['inputs']):
+            inputs += inp.construct(ctx, i, params)
 
-        for (out, param) in zip(tpl['outputs'], params['inputs']):
-            out['outputs'] += out.construct(param)
+        assert len(params['outputs']) == len(tpl['outputs'])
+        for (i, output) in enumerate(tpl['outputs']):
+            outputs += output.construct(ctx, i, params)
 
-        return out
+        outputs += [TxOut.op_return(encode_params([name] + ctx.stack))]
 
-
-def encode_params(params):
-    return repr(params).encode()
-
-def decode_params(b):
-    return eval(b)
-
-
-class EvalContext(namedtuple("EvalContext", 'tx,code,schema,params,chain,stack')):
-    pass
-
-
-class Output:
-    def __init__(self, script, amount=None):
-        self.script = script
-        self.amount = amount or AnyAmount()
-
-    def consume_outputs(self, ctx, nums):
-        i = nums.pop(0)
-        r = self.script.consume_output(ctx, i) or {}
-        r['amount'] = self.amount.consume(ctx, i)
-        return r
-
-
-class Input:
-    def __init__(self, script):
-        self.script = script
-
-    def consume_inputs(self, ctx, nums):
-        i = nums.pop(0)
-        r = self.script.consume_input(ctx, i) or {}
-        r['previous_output'] = ctx.tx.inputs[i].previous_output
-        return r
-
-
-class P2PKH:
-    def consume_input(self, ctx, i):
-        return ctx.tx.inputs[i].script.parse_p2pkh()
-
-    def consume_output(self, ctx, i):
-        return ctx.tx.outputs[i].script.parse_p2pkh()
-
-
-class InputAmount:
-    def __init__(self, input_idx, transforms=None):
-        self.input_idx = input_idx
-        self.transforms = transforms or []
-
-    def consume(self, ctx, amount):
-        # TODO: look up input amount at idx, apply transforms, compare
-        raise NotImplementedError()
-
-
-
-class OutputOpReturn(namedtuple("OutputOpReturn", 'data')):
-    pass
-
-class Condition(namedtuple("Condition", 'script')):
-    pass
-
-class CCEval(namedtuple("CCEval", 'name,idx')):
-    """
-    CCEdge is an output that encodes a validation that the spending
-    transaction corresponds to a certain type of model.
-
-    It needs to be able to write an eval code that
-    will route back to a function. So it needs contextual information.
-    """
-    def consume_output(self, ctx, i):
-        cond = cc_threshold(2, 
-            [cc_eval(ctx.code), cc_secp256k1(hex_encode(ctx.stack.pop(0)))])
-        assert ctx.tx.outputs[i].script.parse_condition().is_same_condition(cond.to_anon())
-        return {
-            "condition": cond.to_py()
-        }
-
-    def consume_input(self, ctx, script):
-        assert script == {
-            "fulfillment": {
-                "type": "eval-sha-256",
-                "code": hex_encode(ctx.code)
-            }
-        }
-
-        assert ctx.params['tx'] == self.name
-
-
-
-class Ref(namedtuple("Ref", "name,idx")):
-    
-    """
-    CCEdge is an input that finds the corresponding input for the referenced output.
-    
-    It needs to look up an output by name. So it needs access to the schema.
-    """
-    def consume_input(self, ctx, script):
-
-        path = self.name.split('.')
-        assert len(path) == 2
-
-        model = ctx.schema[path[0]][path[1]]
-        return model['outputs'][self.idx].script.consume_input(ctx, script)
-
-
-class OneOf(namedtuple("OneOf", 'inputs')):
-    pass
-
-
-class AnyAmount():
-    def consume(self, ctx, amount):
-        return amount
+        return Tx(
+            inputs = tuple(inputs),
+            outputs = tuple(outputs)
+        )
 

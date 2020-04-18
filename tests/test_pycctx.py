@@ -18,9 +18,7 @@ def test_encode_vin():
     assert vin.to_py() == {
         "previous_output": outpoint0,
         "script": {
-            "address": {
-                "address": address0,
-            }
+            "address": address0,
         }
     }
 
