@@ -19,6 +19,8 @@ keypair = {
     "pubkey": "038c3d482cd29f75ce997737705fb5287f022ded66093ee7d929aea100c5ef8a63"
 }
 
+wifs = (keypair['wif'], faucet.global_addr['wif'])
+
 # Create a dummy tx for input
 dummy_tx = Tx(
     inputs = (),
@@ -33,7 +35,7 @@ create_tx = app.create_tx("faucet.create", {
         {"script": {"pubkey": keypair['pubkey']}, "amount": 2000 }
     ]
 })
-create_tx.sign([keypair['wif']], [dummy_tx])
+create_tx.sign(wifs, [dummy_tx])
 
 drip_tx = app.create_tx("faucet.drip", {
     "inputs": [
@@ -44,8 +46,7 @@ drip_tx = app.create_tx("faucet.drip", {
         {"script": {"address": keypair['addr']}, "amount": 1000}
     ]
 })
-drip_tx.sign([keypair['wif']], [create_tx])
-
+drip_tx.sign(wifs, [create_tx])
 
 
 
@@ -65,13 +66,13 @@ def test_validate_create():
             },
         ],
         'outputs': [
-            { 'amount': 2000, 'script': { "pubkey": keypair['pubkey'] } }
+            { 'amount': 2000, 'script': {} }
         ],
     }
     
     # Check it can re-create itself
     create_tx_2 = app.create_tx("faucet.create", spec)
-    create_tx_2.sign([keypair['wif']], [dummy_tx])
+    create_tx_2.sign(wifs, [dummy_tx])
     assert create_tx_2.hash == create_tx.hash
 
 
@@ -81,21 +82,16 @@ def test_validate_drip():
     assert spec == {
         'txid': drip_tx.hash,
         'inputs': [
-            {
-                'previous_output': (create_tx.hash, 0),
-                'script': {
-                    'pubkey': keypair['pubkey'],
-                }
-            },
+            { 'previous_output': (create_tx.hash, 0), 'script': {} },
         ],
         'outputs': [
-            { 'amount': 1000, 'script': { "pubkey": keypair['pubkey'] } },
+            { 'amount': 1000, 'script': {} },
             { 'amount': 1000, 'script': { "address": keypair['addr'] } },
         ],
     }
     
     # Check it can re-create itself
     d2 = app.create_tx("faucet.drip", spec)
-    d2.sign([keypair['wif']], [create_tx])
+    d2.sign(wifs, [create_tx])
     assert d2.hash == drip_tx.hash
 

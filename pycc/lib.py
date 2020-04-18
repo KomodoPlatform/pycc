@@ -116,18 +116,19 @@ class P2PKH:
         return ScriptPubKey.from_address(addr)
 
 
-class SpendBy(namedtuple("SpendBy", 'name,idx')):
+class SpendBy:
     """
     SpendBy ensures that an output is spent by a given type of input
-    """
-    def _eq(self, other):
-        return self.name == other.name and self.idx == other.idx
 
-    def _check_cond(self, ctx, cond):
-        pubkey = ctx.stack.pop()
-        c = cc_threshold(2, [cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
-        assert c.is_same_condition(cond)
-        return { "pubkey": pubkey }
+    SpendBy make either use a dynamic or fixed pubkey.
+    If it's fixed (provided in constructor), it does not expect to find
+    it in tx spec and does not provide it in validated spec.
+
+    """
+    def __init__(self, name, idx, pubkey=None):
+        self.name = name
+        self.idx = idx
+        self.pubkey = pubkey
     
     def consume_output(self, ctx, i):
         return self._check_cond(ctx, ctx.tx.outputs[i].script.parse_condition())
@@ -145,18 +146,30 @@ class SpendBy(namedtuple("SpendBy", 'name,idx')):
             assert model['outputs'][self.idx].script._eq(self)
         return r
 
-    def construct_output(self, ctx, i, params):
-        pubkey = params['outputs'][i]['script']['pubkey']
-        ctx.stack.append(pubkey)
-        cond = cc_threshold(2, [cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
-        return ScriptPubKey.from_condition(cond)
+    def construct_output(self, ctx, i, spec):
+        return ScriptPubKey.from_condition(self._construct_cond(ctx, spec['outputs'][i]))
 
-    def construct_input(self, ctx, i, params):
-        pubkey = params['inputs'][i]['script']['pubkey']
-        ctx.stack.append(pubkey)
-        cond = cc_threshold(2, [cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
-        return ScriptSig.from_condition(cond)
+    def construct_input(self, ctx, i, spec):
+        return ScriptSig.from_condition(self._construct_cond(ctx, spec['inputs'][i]))
 
+    def _eq(self, other):
+        # Should compare the pubkey here? maybe it's not neccesary
+        return self.name == other.name and self.idx == other.idx and self.pubkey == other.pubkey
+
+    def _check_cond(self, ctx, cond):
+        pubkey = self.pubkey or self.stack.pop()
+        c = cc_threshold(2, [cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
+        assert c.is_same_condition(cond)
+        return {} if self.pubkey else { "pubkey": pubkey }
+
+    def _construct_cond(self, ctx, script_spec):
+        pubkey = self.pubkey
+        if pubkey:
+            assert not script_spec.get('pubkey'), "pubkey is provided"
+        else:
+            pubkey = script_spec['pubkey']
+            ctx.stack.append(pubkey)
+        return cc_threshold(2, [cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
 
 
 class AnyAmount():
