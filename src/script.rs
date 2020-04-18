@@ -176,7 +176,7 @@ impl ScriptSig {
                 match script.get_instruction(0).map_err(|_| u("Could not get sig from script sig"))? {
                     ss::Instruction { data: Some(sigdata), step, .. } => {
                         let step0 = step;
-                        let sig = kk::Signature::from(sigdata);
+                        let sig = kk::Signature::from(&sigdata[..sigdata.len()-1]);
                         match script.get_instruction(step).map_err(|_| u("Could not get pk from script sig"))? {
                             ss::Instruction { data: Some(pkdata), step, .. } => {
                                 if step0 + step != (&script).len() {
@@ -191,6 +191,9 @@ impl ScriptSig {
                     },
                     _ => Err(u("Could not get sig from script sig"))
                 }
+            },
+            AddressSig { address, signature: Some((pk, sig)) } => {
+                Ok(self.to_py(py)?)
             },
             _ => Err(u("Expected signed script"))
         }

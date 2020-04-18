@@ -45,8 +45,23 @@ def decode_params(b):
     return eval(b)
 
 
-class EvalContext(namedtuple("EvalContext", 'tx,eval_code,schema,params,chain,stack')):
-    pass
+class EvalContext:
+    def __init__(self, tx, eval_code, schema, chain, stack):
+        self.tx = tx
+        self.eval_code = eval_code
+        self.schema = schema
+        self.chain = chain
+        self.stack = stack
+        self.post_validators = []
+
+    def get_model(self, name):
+        # TODO: control errors
+        path = name.split('.')
+        assert len(path) == 2
+        return self.schema[path[0]][path[1]]
+
+    def add_post_validator(self, f):
+        self.post_validators.append(f)
 
 
 class Output:
@@ -63,7 +78,10 @@ class Output:
 
     def construct(self, ctx, i, params):
         p = params['outputs'][i]
-        return [TxOut(p['amount'], self.script.construct_output(ctx, i, params))]
+        return [TxOut(
+            amount = self.amount.construct(ctx, i, params),
+            script = self.script.construct_output(ctx, i, params)
+        )]
 
 
 class Input:
@@ -89,12 +107,16 @@ class P2PKH:
     def consume_output(self, ctx, i):
         return ctx.tx.outputs[i].script.parse_p2pkh()
 
-    def construct_input(self, ctx, i, params):
-        addr = params['inputs'][i]['script']['address']
+    def construct_input(self, ctx, i, spec):
+        addr = spec['inputs'][i]['script']['address']
         return ScriptSig.from_address(addr)
 
+    def construct_output(self, ctx, i, spec):
+        addr = spec['outputs'][i]['script']['address']
+        return ScriptPubKey.from_address(addr)
 
-class CCEval(namedtuple("CCEval", 'name,idx')):
+
+class SpendBy(namedtuple("Eval", 'name,idx')):
     """
     CCEdge is an output that encodes a validation that the spending
     transaction corresponds to a certain type of model.
@@ -110,15 +132,13 @@ class CCEval(namedtuple("CCEval", 'name,idx')):
             "pubkey": pubkey
         }
 
-    def consume_input(self, ctx, script):
-        assert script == {
-            "fulfillment": {
-                "type": "eval-sha-256",
-                "code": hex_encode(ctx.code)
-            }
+    def consume_input(self, ctx, i):
+        pubkey = ctx.stack.pop()
+        cond = cc_threshold(2, [cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
+        assert ctx.tx.outputs[i].script.parse_condition().is_same_condition(cond)
+        return {
+            "pubkey": pubkey
         }
-
-        assert ctx.params['tx'] == self.name
 
     def construct_output(self, ctx, i, params):
         pubkey = params['outputs'][i]['script']['pubkey']
@@ -126,49 +146,62 @@ class CCEval(namedtuple("CCEval", 'name,idx')):
         cond = cc_threshold(2, [cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
         return ScriptPubKey.from_condition(cond)
 
+    def construct_input(self, ctx, i, params):
+        pubkey = params['inputs'][i]['script']['pubkey']
+        ctx.stack.append(pubkey)
+        cond = cc_threshold(2, [cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
+        return ScriptSig.from_condition(cond)
 
-class Ref(namedtuple("Ref", "name,idx")):
-    """
-    CCEdge is an input that finds the corresponding input for the referenced output.
-    
-    It needs to look up an output by name. So it needs access to the schema.
-    """
-    def consume_input(self, ctx, script):
-
-        path = self.name.split('.')
-        assert len(path) == 2
-
-        model = ctx.schema[path[0]][path[1]]
-        return model['outputs'][self.idx].script.consume_input(ctx, script)
 
 
 class AnyAmount():
     def consume(self, ctx, i):
         return ctx.tx.outputs[i].amount
 
+    def construct(self, ctx, i, params):
+        return params['outputs'][i]['amount']
+
 
 class RelativeAmount:
     def __init__(self, input_idx, diff=0):
         self.input_idx = input_idx
-        self.diff = 0
+        self.diff = diff
 
     def __sub__(self, n):
         return RelativeAmount(self.input_idx, self.diff - n)
 
-    def consume(self, ctx, amount):
+    def consume(self, ctx, i):
+        amount = ctx.tx.outputs[i].amount
 
         # We have the input idx of the input *group*, not the input itself.
         # Since there's no easy way to get the inputs in the group from here,
         # add a post validator which gets the validation output and run it on that.
 
         def post_validator(spec):
+            # TODO: handle input groups
             total = 0
-            for inp in spec['inputs'][self.input_idx]:
-                input_tx = ctx.chain.get_transaction(inp.previous_output[0])
-                total += input_tx.outputs[inp.previous_output[1]]['amount']
-            
-            assert total + diff == amount
+            for inp in (spec['inputs'][self.input_idx],):
+                p = inp['previous_output']
+                input_tx = ctx.chain.get_tx_confirmed(p[0])
+                total += input_tx.outputs[p[1]].amount
+
+            assert total + self.diff == amount
 
         ctx.add_post_validator(post_validator)
         return amount
+
+    def construct(self, ctx, i, spec):
+        # TODO: handle input groups
+        r = self.diff
+        for inp in (spec['inputs'][self.input_idx],):
+            p = inp['previous_output']
+            input_tx = ctx.chain.get_tx_confirmed(p[0])
+            r += input_tx.outputs[p[1]].amount
+
+        assert r >= 0, "cannot construct RelativeInput: low balance"
+
+        return r
+
+
+
 
