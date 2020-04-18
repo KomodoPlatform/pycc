@@ -36,3 +36,6 @@ schema = {
 
 def cc_eval(chain, tx_bin, nIn, eval_code):
     return CCApp(schema, eval_code, chain).cc_eval(tx_bin)
+
+# To run komodod with this module:
+# > PYTHONPATH=. /path/to/komodod -ac_pycc=pycc.examples.faucet

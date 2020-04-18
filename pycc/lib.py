@@ -6,6 +6,11 @@ from collections import namedtuple
 
 from pycctx import *
 
+# Hack because komodod expects cc_eval function and pycctx.script also exports it
+mk_cc_eval = cc_eval
+del globals()['cc_eval']
+
+
 
 def py_to_hex(data):
     return hex_encode(json.dumps(data, sort_keys=True))
@@ -158,7 +163,7 @@ class SpendBy:
 
     def _check_cond(self, ctx, cond):
         pubkey = self.pubkey or self.stack.pop()
-        c = cc_threshold(2, [cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
+        c = cc_threshold(2, [mk_cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
         assert c.is_same_condition(cond)
         return {} if self.pubkey else { "pubkey": pubkey }
 
@@ -169,7 +174,7 @@ class SpendBy:
         else:
             pubkey = script_spec['pubkey']
             ctx.stack.append(pubkey)
-        return cc_threshold(2, [cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
+        return cc_threshold(2, [mk_cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
 
 
 class AnyAmount():

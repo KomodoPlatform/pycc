@@ -1,6 +1,6 @@
 
 
-from pycctx import *
+from pycctx import Tx
 from pycc.lib import *
 
 
