@@ -167,10 +167,11 @@ class SpendBy:
         assert c.is_same_condition(cond)
         return {} if self.pubkey else { "pubkey": pubkey }
 
-    def _construct_cond(self, ctx, script_spec):
+    def _construct_cond(self, ctx, node_spec):
         pubkey = self.pubkey
+        script_spec = node_spec.get('script', {})
         if pubkey:
-            assert not script_spec.get('pubkey'), "pubkey is provided"
+            assert not script_spec.get('pubkey'), "pubkey must not be in both spec and schema"
         else:
             pubkey = script_spec['pubkey']
             ctx.stack.append(pubkey)
@@ -224,7 +225,3 @@ class RelativeAmount:
         assert r >= 0, "cannot construct RelativeInput: low balance"
 
         return r
-
-
-
-

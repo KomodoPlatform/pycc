@@ -29,20 +29,20 @@ dummy_tx = Tx(
 
 create_tx = app.create_tx("faucet.create", {
     "inputs": [
-        { "previous_output": (dummy_tx.hash, 0), "script": {"address": keypair['addr']} }
+        { "previous_output": (dummy_tx.hash, 0), "script": { "address": keypair['addr'] } }
     ],
     "outputs": [
-        {"script": {"pubkey": keypair['pubkey']}, "amount": 2000 }
+        { "amount": 2000 }
     ]
 })
 create_tx.sign(wifs, [dummy_tx])
 
 drip_tx = app.create_tx("faucet.drip", {
     "inputs": [
-        { "previous_output": (create_tx.hash, 0), "script": { "pubkey": keypair['pubkey'] } },
+        { "previous_output": (create_tx.hash, 0) },
     ],
     "outputs": [
-        {"script": {"pubkey": keypair['pubkey']}}, # Doesn't specify amount
+        { },
         {"script": {"address": keypair['addr']}, "amount": 1000}
     ]
 })
