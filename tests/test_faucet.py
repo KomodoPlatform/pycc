@@ -43,7 +43,7 @@ drip_tx = app.create_tx("faucet.drip", {
     ],
     "outputs": [
         { },
-        {"script": {"address": keypair['addr']}, "amount": 1000}
+        { "script": {"address": keypair['addr']}, "amount": 1000 }
     ]
 })
 drip_tx.sign(wifs, [create_tx])

@@ -81,12 +81,33 @@ class Output:
             "amount": self.amount.consume(ctx, i)
         }
 
-    def construct(self, ctx, i, params):
-        p = params['outputs'][i]
+    def construct(self, ctx, i, spec):
+        p = spec['outputs'][i]
         return [TxOut(
-            amount = self.amount.construct(ctx, i, params),
-            script = self.script.construct_output(ctx, i, params)
+            amount = self.amount.construct(ctx, i, spec),
+            script = self.script.construct_output(ctx, i, spec)
         )]
+
+class Outputs:
+    def __init__(self, script, amount=None, min=1):
+        self.script = script
+        self.amount = amount or AnyAmount()
+
+    def consume_outputs(self, ctx, nums):
+        n = ctx.params.pop()
+        assert n >= self.min
+        o = Output(self.script, self.amount)
+        return [o.consume_outputs(ctx, nums) for _ in range(n)]
+
+    def construct(self, ctx, i, spec):
+        ps = spec['inputs'][i]
+        n = len(ps)
+        ctx.spec.push(n)
+        assert n >= self.min
+        return [TxOut(
+            amount = self.amount.construct(ctx, i, spec),
+            script = self.script.construct_output(ctx, i, spec)
+        ) for p in ps]
 
 
 class Input:
@@ -100,9 +121,29 @@ class Input:
             "script": self.script.consume_input(ctx, i) or {}
         }
 
-    def construct(self, ctx, i, params):
-        p = params['inputs'][i]
-        return [TxIn(p['previous_output'], self.script.construct_input(ctx, i, params))]
+    def construct(self, ctx, i, spec):
+        p = spec['inputs'][i]
+        return [TxIn(p['previous_output'], self.script.construct_input(ctx, i, spec))]
+
+
+class Inputs:
+    def __init__(self, script, min=1):
+        self.script = script
+        self.min = min
+
+    def consume_inputs(self, ctx, nums):
+        n = ctx.params.pop()
+        assert n >= self.min
+        inp = Input(self.script)
+        return [inp.consume_inputs(ctx, nums) for _ in range(n)]
+
+    def construct(self, ctx, i, spec):
+        ps = spec['inputs'][i]
+        n = len(ps)
+        ctx.params.push(n)
+        assert n >= self.min
+        return [TxIn(p['previous_output'], self.script.construct_input(ctx, i, spec))
+                for p in spec['inputs'][i]]
 
 
 class P2PKH:
@@ -185,6 +226,17 @@ class AnyAmount():
     def construct(self, ctx, i, params):
         return params['outputs'][i]['amount']
 
+
+class ExactAmount:
+    def __init__(self, amount):
+        self.amount = amount
+    
+    def consume(self, ctx, i):
+        assert ctx.tx.outputs[i].amount == self.amount
+
+    def construct(self, ctx, i, params):
+        assert 'amount' not in params['outputs'][i]
+        return self.amount
 
 class RelativeAmount:
     def __init__(self, input_idx, diff=0):
