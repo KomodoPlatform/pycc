@@ -89,6 +89,9 @@ def test_validate_drip():
             { 'amount': 1000, 'script': { "address": keypair['addr'] } },
         ],
     }
+
+    # TODO: hack, what to do about this?
+    spec['outputs'][0] = { }
     
     # Check it can re-create itself
     d2 = app.create_tx("faucet.drip", spec)

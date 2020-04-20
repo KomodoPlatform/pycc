@@ -2,11 +2,11 @@
 from pycc import *
 
 
-token_link = SpendBy('token.transfer', 0)
-
-def no_token_create(ctx, spec):
+def scarcity(ctx, spec):
     import pdb; pdb.set_trace()
 
+
+token_link = SpendBy('token.transfer', 0)
 
 schema = {
     "token": {
@@ -15,7 +15,8 @@ schema = {
                 Input(P2PKH())
             ],
             "outputs": [
-                Outputs(token_link, ExactAmount(0))
+                Outputs(token_link, ExactAmount(0)),
+                Output(P2PKH())
             ],
         },
         "transfer": {
@@ -28,7 +29,7 @@ schema = {
                 Output(P2PKH())
             ],
             "validators": [
-                no_token_create
+                scarcity
             ]
         },
     }
