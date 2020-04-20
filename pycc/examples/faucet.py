@@ -8,7 +8,7 @@ global_addr = {
   "pubkey": "03997fec500b2405c234724269a59afa0750c3ce10b9240a74deb48b3a852d8b41"
 }
 
-schema_link = SpendBy("faucet.drip", 0, pubkey=global_addr['pubkey'])
+schema_link = SpendBy("faucet.drip", pubkey=global_addr['pubkey'])
 
 
 schema = {

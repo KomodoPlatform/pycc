@@ -3,6 +3,7 @@ import io
 import json
 import copy
 from collections import namedtuple
+from copy import deepcopy
 
 from pycctx import *
 
@@ -10,6 +11,96 @@ from pycctx import *
 mk_cc_eval = cc_eval
 del globals()['cc_eval']
 
+
+
+class TxConstructor:
+    def __init__(self, app, spec):
+        self.model = app.get_model(spec['name'])
+        self.app = app
+        self.spec = deepcopy(spec)
+        self.params = {}
+        self.stack = [] # TODO: phase out in favour of params
+
+    def construct(self):
+        def f(l):
+            out = []
+            groups = []
+            specs = self.spec[l]
+            model = self.model[l]
+            assert len(specs) == len(model), ("number of %s groups differs" % l)
+            for (spec, model_i) in zip(specs, model):
+                r = model_i.construct(self, spec)
+                n = len(r)
+                assert n <= 256, ("%s group too large (256 max)" % l)
+                groups.append(n)
+                out.extend(r)
+            return (groups, out)
+
+        (input_groups, inputs) = f('inputs')
+        (output_groups, outputs) = f('outputs')
+
+        params = [self.spec['name'], (input_groups, output_groups), self.params] + self.stack
+        outputs += [TxOut.op_return(encode_params(params))]
+
+        return Tx(
+            inputs = tuple(inputs),
+            outputs = tuple(outputs)
+        )
+
+    @property
+    def inputs(self):
+        return tuple(i if type(i) == list else [i] for i in self.spec['inputs'])
+
+
+class TxValidator:
+    def __init__(self, app, tx):
+        self.tx = tx
+        self.app = app
+
+        self.stack = decode_params(get_opret(tx))
+        self.name = self.stack.pop(0)
+        self.model = app.get_model(self.name)
+        (self.input_groups, self.output_groups) = self.stack.pop(0)
+        self.params = self.stack.pop(0)
+
+    def validate(self):
+        spec = {"txid": self.tx.hash, "inputs": [], "outputs": [], "name": self.name}
+
+        def f(groups, l, nodes):
+            assert len(groups) == len(self.model[l])
+            assert sum(groups) == len(nodes)
+            for (n, m) in zip(groups, self.model[l]):
+                spec[l].append(m.consume(self, nodes[:n]))
+                nodes = nodes[n:]
+
+        f(self.input_groups, 'inputs', self.tx.inputs)
+        f(self.output_groups, 'outputs', self.tx.outputs[:-1])
+
+        for validate in self.model.get('validators', []):
+            validate(self, spec)
+
+        return spec
+
+    def get_input_group(self, idx):
+        groups = self.input_groups
+        assert idx < len(groups), "TODO better message"
+        skip = sum(groups[:idx])
+        return self.tx.inputs[skip:][:groups[idx]]
+
+    def get_output_group(self, idx):
+        groups = self.output_groups
+        assert idx < len(groups), "TODO better message"
+        skip = sum(groups[:idx])
+        return self.tx.outputs[skip:][:groups[idx]]
+
+    def get_group_for_output(self, n_out):
+        groups = self.output_groups
+        tot = 0
+        for (out_m, n) in zip(self.model['outputs'], groups):
+            if tot + n > n_out:
+                return out_m
+            tot += n
+        raise AssertionError("Cannot get group for output")
 
 
 def py_to_hex(data):
@@ -31,16 +122,6 @@ def get_opret(tx):
     assert not data is None, "opret not present"
     return data
 
-def get_model(schema, path):
-    (module_name, model_name) = path.split('.', 2)
-
-    assert module_name in schema, ("unknown module: %s" % module_name)
-    module = schema[module_name]
-
-    assert model_name in module, ("unknown tx: %s" % model_name)
-    return module.get(model_name)
-
-
 
 def encode_params(params):
     return repr(params).encode()
@@ -49,87 +130,25 @@ def decode_params(b):
     return eval(b)
 
 
-class EvalContext:
-    def __init__(self, tx, eval_code, schema, chain, stack):
-        self.tx = tx
-        self.eval_code = eval_code
-        self.schema = schema
-        self.chain = chain
-        self.stack = stack
-        self.post_validators = []
-
-    def get_model(self, name):
-        # TODO: control errors
-        path = name.split('.')
-        assert len(path) == 2
-        return self.schema[path[0]][path[1]]
-
-    def add_post_validator(self, f):
-        self.post_validators.append(f)
-
-
-class Output:
-    def __init__(self, script, amount=None):
-        self.script = script
-        self.amount = amount or AnyAmount()
-
-    def consume(self, ctx, outputs):
-        assert len(outputs) == 1
-        return self.consume_output(ctx, *outputs)
-
-    def consume_output(self, ctx, output):
-        return {
-            "script": self.script.consume_output(ctx, output.script) or {},
-            "amount": self.amount.consume(ctx, output.amount)
-        }
-
-    def construct(self, ctx, spec):
-        return [self.construct_output(ctx, spec)]
-
-    def construct_output(self, ctx, spec):
-        return TxOut(
-            amount = self.amount.construct(ctx, spec.get('amount')),
-            script = self.script.construct_output(ctx, spec.get('script', {}))
-        )
-
-
-
-class Outputs:
-    def __init__(self, script, amount=None, min=1):
-        self.script = script
-        self.amount = amount or AnyAmount()
-        self.min = min
-
-    def consume(self, ctx, outputs):
-        assert len(outputs) >= self.min
-        o = Output(self.script, self.amount)
-        return [o.consume_output(ctx, o) for o in outputs]
-
-    def construct(self, ctx, outputs):
-        assert len(outputs) >= self.min
-        o = Output(self.script, self.amount)
-        return [o.construct_output(ctx, out) for out in outputs]
-
-
 class Input:
     def __init__(self, script):
         self.script = script
 
-    def consume(self, ctx, inputs):
+    def consume(self, tx, inputs):
         assert len(inputs) == 1
-        return self.consume_input(ctx, *inputs)
+        return self.consume_input(tx, *inputs)
 
-    def consume_input(self, ctx, inp):
+    def consume_input(self, tx, inp):
         return {
             "previous_output": inp.previous_output,
-            "script": self.script.consume_input(ctx, inp) or {}
+            "script": self.script.consume_input(tx, inp) or {}
         }
 
-    def construct(self, ctx, spec):
-        return [self.construct_input(ctx, spec)]
+    def construct(self, tx, spec):
+        return [self.construct_input(tx, spec)]
 
-    def construct_input(self, ctx, spec):
-        return TxIn(spec['previous_output'], self.script.construct_input(ctx, spec.get('script', {})))
+    def construct_input(self, tx, spec):
+        return TxIn(spec['previous_output'], self.script.construct_input(tx, spec.get('script', {})))
 
 
 class Inputs:
@@ -137,28 +156,88 @@ class Inputs:
         self.script = script
         self.min = min
 
-    def consume(self, ctx, inputs):
+    def consume(self, tx, inputs):
         assert len(inputs) >= self.min
         inp = Input(self.script)
-        return [inp.consume_input(ctx, i) for i in inputs]
+        return [inp.consume_input(tx, i) for i in inputs]
 
-    def construct(self, ctx, inputs):
+    def construct(self, tx, inputs):
         assert len(inputs) >= self.min
         i = Input(self.script)
-        return [i.construct_input(ctx, inp) for inp in inputs]
+        return [i.construct_input(tx, inp) for inp in inputs]
+
+
+class Outputs:
+    def __init__(self, script, amount=None, min=1, max=0xff, data=None):
+        self.script = script
+        self.amount = amount or Amount()
+        self.data = data or {}
+        self.min = min
+        self.max = max
+
+    def consume(self, tx, outputs):
+        assert self.min <= len(outputs) <= self.max
+        outs = [self._consume_output(tx, o) for o in outputs]
+        for out in outs:
+            for (i, k) in enumerate(self.data):
+                out[k] = self.data[k].consume(tx, tx.params[k][i])
+        return outs
+
+    def _consume_output(self, tx, output):
+        return {
+            "script": self.script.consume_output(tx, output.script) or {},
+            "amount": self.amount.consume(tx, output.amount)
+        }
+
+    def construct(self, tx, outputs):
+        assert type(outputs) == list, "outputs should be a list"
+        assert self.min <= len(outputs) <= self.max
+
+        for (k, t) in self.data.items():
+            assert k not in tx.params, ('Namespace conflict on "%s"' % k)
+            l = tx.params[k] = []
+            for out in outputs:
+                p = t.construct(tx, out[k])
+                l.append(p)
+
+        return [self._construct_output(tx, out) for out in outputs]
+
+    def _construct_output(self, tx, spec):
+        return TxOut(
+            amount = self.amount.construct(tx, spec.get('amount')),
+            script = self.script.construct_output(tx, spec.get('script', {}))
+        )
+
+
+def OptionalOutput(script):
+    # TODO: this should maybe be a class so it can have nice error messages an such
+    return Outputs(script, min=0, max=1)
+
+
+class Output(Outputs):
+    def __init__(self, *args, **kwargs):
+        kwargs.update(dict(min=1, max=1))
+        super(Output, self).__init__(*args, **kwargs)
+
+    def construct(self, tx, output):
+        return super(Output, self).construct(tx, [output])
+
+    def consume(self, tx, output):
+        return super(Output, self).consume(tx, output)[0]
+
 
 
 class P2PKH:
-    def consume_input(self, ctx, inp):
+    def consume_input(self, tx, inp):
         return inp.script.parse_p2pkh()
 
-    def consume_output(self, ctx, script):
+    def consume_output(self, tx, script):
         return script.parse_p2pkh()
 
-    def construct_input(self, ctx, spec):
+    def construct_input(self, tx, spec):
         return ScriptSig.from_address(spec['address'])
 
-    def construct_output(self, ctx, spec):
+    def construct_output(self, tx, spec):
         return ScriptPubKey.from_address(spec['address'])
 
 
@@ -171,70 +250,69 @@ class SpendBy:
     it in tx spec and does not provide it in validated spec.
 
     """
-    def __init__(self, name, idx, pubkey=None):
+    def __init__(self, name, pubkey=None):
         self.name = name
-        self.output_idx = idx
         self.pubkey = pubkey
 
         # TODO: sanity check on structure? make sure that inputs and outputs are compatible
     
-    def consume_output(self, ctx, script):
+    def consume_output(self, tx, script):
         # When checking the output there's nothing to check except the script
-        return self._check_cond(ctx, script.parse_condition())
+        return self._check_cond(tx, script.parse_condition())
 
-    def consume_input(self, ctx, inp):
+    def consume_input(self, tx, inp):
         # Check input script
-        r = self._check_cond(ctx, inp.script.parse_condition())
+        r = self._check_cond(tx, inp.script.parse_condition())
 
         # Check output of parent tx to make sure link is correct
         p = inp.previous_output
 
-        # TODO: make this easier
-        input_tx = ctx.chain.get_tx_confirmed(p[0])
-        stack = decode_params(get_opret(input_tx))
-        model = get_model(ctx.schema, self.name)
-        assert model['outputs'][self.output_idx].script._eq(self)
-
-        # Check that index of output being spent is part of target output group
-        gs = ctx.tx.output_groups
-        p = p[1] - sum(gs[:self.output_idx])
-        assert p >= 0 and p < gs[self.output_idx], "TODO: Nice message"
+        input_tx = TxValidator(tx.app, tx.app.chain.get_tx_confirmed(p[0]))
+        out_model = input_tx.get_group_for_output(p[1])
+        assert self._eq(out_model.script)
 
         return r
 
-    def construct_output(self, ctx, spec):
-        return ScriptPubKey.from_condition(self._construct_cond(ctx, spec))
+    def construct_output(self, tx, spec):
+        return ScriptPubKey.from_condition(self._construct_cond(tx, spec))
 
-    def construct_input(self, ctx, spec):
-        return ScriptSig.from_condition(self._construct_cond(ctx, spec))
+    def construct_input(self, tx, spec):
+        return ScriptSig.from_condition(self._construct_cond(tx, spec))
 
     def _eq(self, other):
         # Should compare the pubkey here? maybe it's not neccesary
-        return (self.name == other.name and
-                self.output_idx == other.output_idx and
+        return (type(self) == type(other) and 
+                self.name == other.name and
                 self.pubkey == other.pubkey)
 
-    def _check_cond(self, ctx, cond):
-        pubkey = self.pubkey or self.stack.pop()
-        c = cc_threshold(2, [mk_cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
+    def _check_cond(self, tx, cond):
+        pubkey = self.pubkey or tx.stack.pop()
+        c = cc_threshold(2, [mk_cc_eval(tx.app.eval_code), cc_secp256k1(pubkey)])
         assert c.is_same_condition(cond)
         return {} if self.pubkey else { "pubkey": pubkey }
 
-    def _construct_cond(self, ctx, script_spec):
+    def _construct_cond(self, tx, script_spec):
         pubkey = self.pubkey
         if pubkey:
             assert not script_spec.get('pubkey'), "pubkey must not be in both spec and schema"
         else:
             pubkey = script_spec['pubkey']
-            ctx.stack.append(pubkey)
-        return cc_threshold(2, [mk_cc_eval(ctx.eval_code), cc_secp256k1(pubkey)])
+            tx.stack.append(pubkey)
+        return cc_threshold(2, [mk_cc_eval(tx.app.eval_code), cc_secp256k1(pubkey)])
 
 
-class AnyAmount():
-    def consume(self, ctx, amount):
+class Amount():
+    def __init__(self, min=0):
+        self.min = min
+
+    def consume(self, tx, amount):
+        assert type(amount) == int
+        assert amount >= self.min
         return amount
 
-    def construct(self, ctx, amount):
+    def construct(self, tx, amount):
+        assert type(amount) == int
+        assert amount >= self.min
         return amount
 
 
@@ -242,10 +320,10 @@ class ExactAmount:
     def __init__(self, amount):
         self.amount = amount
     
-    def consume(self, ctx, amount):
+    def consume(self, tx, amount):
         assert amount == self.amount
 
-    def construct(self, ctx, amount):
+    def construct(self, tx, amount):
         assert amount is None
         return self.amount
 
@@ -258,24 +336,24 @@ class RelativeAmount:
     def __sub__(self, n):
         return RelativeAmount(self.input_idx, self.diff - n)
 
-    def consume(self, ctx, amount):
+    def consume(self, tx, amount):
         total = self.diff
-        for inp in ctx.tx.get_input_group(self.input_idx):
+        for inp in tx.get_input_group(self.input_idx):
             p = inp.previous_output
-            input_tx = ctx.chain.get_tx_confirmed(p[0])
+            input_tx = tx.app.chain.get_tx_confirmed(p[0])
             total += input_tx.outputs[p[1]].amount
 
         assert total == amount, "TODO: nice error message"
         return amount
 
-    def construct(self, ctx, spec):
+    def construct(self, tx, spec):
         assert spec == None, "amount should not be provided for RelativeAmount"
 
         r = self.diff
 
-        for inp in as_list(ctx.tx.inputs[self.input_idx]):
+        for inp in as_list(tx.inputs[self.input_idx]):
             p = inp['previous_output']
-            input_tx = ctx.chain.get_tx_confirmed(p[0])
+            input_tx = tx.app.chain.get_tx_confirmed(p[0])
             r += input_tx.outputs[p[1]].amount
 
         assert r >= 0, "cannot construct RelativeInput: low balance"

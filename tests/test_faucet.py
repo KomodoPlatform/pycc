@@ -27,7 +27,8 @@ dummy_tx = Tx(
     outputs = (TxOut(2000, ScriptPubKey.from_address(keypair['addr'])),)
 )
 
-create_tx = app.create_tx("faucet.create", {
+create_tx = app.create_tx({
+    "name": "faucet.create",
     "inputs": [
         { "previous_output": (dummy_tx.hash, 0), "script": { "address": keypair['addr'] } }
     ],
@@ -37,7 +38,8 @@ create_tx = app.create_tx("faucet.create", {
 })
 create_tx.sign(wifs, [dummy_tx])
 
-drip_tx = app.create_tx("faucet.drip", {
+drip_tx = app.create_tx({
+    "name": "faucet.drip",
     "inputs": [
         { "previous_output": (create_tx.hash, 0) },
     ],
@@ -55,6 +57,7 @@ def test_validate_create():
     del spec['inputs'][0]['script']['signature']
 
     assert spec == {
+        'name': 'faucet.create',
         'txid': create_tx.hash,
         'inputs': [
             {
@@ -71,7 +74,7 @@ def test_validate_create():
     }
     
     # Check it can re-create itself
-    create_tx_2 = app.create_tx("faucet.create", spec)
+    create_tx_2 = app.create_tx(spec)
     create_tx_2.sign(wifs, [dummy_tx])
     assert create_tx_2.hash == create_tx.hash
 
@@ -80,6 +83,7 @@ def test_validate_drip():
     spec = app.validate_tx(drip_tx)
 
     assert spec == {
+        'name': 'faucet.drip',
         'txid': drip_tx.hash,
         'inputs': [
             { 'previous_output': (create_tx.hash, 0), 'script': {} },
@@ -94,7 +98,7 @@ def test_validate_drip():
     spec['outputs'][0] = { }
     
     # Check it can re-create itself
-    d2 = app.create_tx("faucet.drip", spec)
+    d2 = app.create_tx(spec)
     d2.sign(wifs, [create_tx])
     assert d2.hash == drip_tx.hash
 
