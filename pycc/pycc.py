@@ -87,8 +87,8 @@ class TxValidator:
         f(self.input_groups, 'inputs', self.tx.inputs)
         f(self.output_groups, 'outputs', self.tx.outputs[:-1])
 
-        if 'validate' in self.model:
-            self.model['validate'](ctx, spec)
+        for validator in self.model.get('validators', []):
+            validate(ctx, spec)
 
         return spec
 

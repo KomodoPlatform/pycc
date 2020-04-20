@@ -84,31 +84,31 @@ class Output:
         }
 
     def construct(self, ctx, spec):
-        return [TxOut(
+        return [self.construct_output(ctx, spec)]
+
+    def construct_output(self, ctx, spec):
+        return TxOut(
             amount = self.amount.construct(ctx, spec.get('amount')),
-            script = self.script.construct_output(ctx, spec.get('script'))
-        )]
+            script = self.script.construct_output(ctx, spec.get('script', {}))
+        )
+
 
 
 class Outputs:
     def __init__(self, script, amount=None, min=1):
         self.script = script
         self.amount = amount or AnyAmount()
+        self.min = min
 
     def consume(self, ctx, outputs):
         assert len(outputs) >= self.min
         o = Output(self.script, self.amount)
         return [o.consume_output(ctx, o) for o in outputs]
 
-    def construct(self, ctx, i, spec):
-        ps = spec['inputs'][i]
-        n = len(ps)
-        ctx.spec.push(n)
-        assert n >= self.min
-        return [TxOut(
-            amount = self.amount.construct(ctx, i, spec),
-            script = self.script.construct_output(ctx, i, spec)
-        ) for p in ps]
+    def construct(self, ctx, outputs):
+        assert len(outputs) >= self.min
+        o = Output(self.script, self.amount)
+        return [o.construct_output(ctx, out) for out in outputs]
 
 
 class Input:
@@ -126,7 +126,10 @@ class Input:
         }
 
     def construct(self, ctx, spec):
-        return [TxIn(spec['previous_output'], self.script.construct_input(ctx, spec.get('script')))]
+        return [self.construct_input(ctx, spec)]
+
+    def construct_input(self, ctx, spec):
+        return TxIn(spec['previous_output'], self.script.construct_input(ctx, spec.get('script', {})))
 
 
 class Inputs:
@@ -139,13 +142,10 @@ class Inputs:
         inp = Input(self.script)
         return [inp.consume_input(ctx, i) for i in inputs]
 
-    def construct(self, ctx, i, spec):
-        ps = spec['inputs'][i]
-        n = len(ps)
-        ctx.params.push(n)
-        assert n >= self.min
-        return [TxIn(p['previous_output'], self.script.construct_input(ctx, i, spec))
-                for p in spec['inputs'][i]]
+    def construct(self, ctx, inputs):
+        assert len(inputs) >= self.min
+        i = Input(self.script)
+        return [i.construct_input(ctx, inp) for inp in inputs]
 
 
 class P2PKH:
@@ -220,9 +220,8 @@ class SpendBy:
         assert c.is_same_condition(cond)
         return {} if self.pubkey else { "pubkey": pubkey }
 
-    def _construct_cond(self, ctx, node_spec):
+    def _construct_cond(self, ctx, script_spec):
         pubkey = self.pubkey
-        script_spec = (node_spec or {}).get('script', {})
         if pubkey:
             assert not script_spec.get('pubkey'), "pubkey must not be in both spec and schema"
         else:
