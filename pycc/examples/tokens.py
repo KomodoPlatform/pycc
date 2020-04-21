@@ -2,18 +2,26 @@
 from pycc import *
 
 
-def scarcity(tx, spec):
-    tot_input = tot_output = 0
+class Token:
+    def consume(self, tx, spec):
+        tot_input = tot_output = 0
 
-    for inp in tx.get_input_group(0):
-        input_tx = TxValidator(tx.app, tx.app.chain.get_tx_confirmed(inp.previous_output[0]))
-        tot_input += input_tx.params['tokenoshi'][inp.previous_output[1]]
+        for inp in tx.get_input_group(0):
+            input_tx = TxValidator(tx.app, tx.app.chain.get_tx_confirmed(inp.previous_output[0]))
+            # This will break because the output index needs to be translated for the group
+            # In reality the thing to do is to call validate() but not do I/O
+            # TODO: check token ID on the input
+            # TODO: check that input tx has right eval code
+            tot_input += input_tx.params['tokenoshi'][inp.previous_output[1]]
 
-    for out in spec['outputs'][0]:
-        tot_output += out['tokenoshi']
+        for out in spec['outputs'][0]:
+            tot_output += out['tokenoshi']
 
-    assert tot_input >= tot_output
+        assert tot_input >= tot_output
+        # return token ID
 
+    def construct(self, tx, token_id):
+        tx.params['token'] = token_id
 
 
 token_link = SpendBy('token.transfer')
@@ -35,7 +43,7 @@ schema = {
             "outputs": [
                 tokens,
                 OptionalOutput(P2PKH())
-            ],
+            ]
         },
         "transfer": {
             "inputs": [
@@ -46,9 +54,7 @@ schema = {
                 tokens,
                 OptionalOutput(P2PKH())
             ],
-            "validators": [
-                scarcity
-            ]
+            "token": Token
         },
     }
 }
