@@ -31,7 +31,7 @@ class TxConstructor:
             for (spec, model_i) in zip(specs, model):
                 r = model_i.construct(self, spec)
                 n = len(r)
-                assert n <= 256, ("%s group too large (256 max)" % l)
+                assert n <= 0xff, ("%s group too large (255 max)" % l)
                 groups.append(n)
                 out.extend(r)
             return (groups, out)

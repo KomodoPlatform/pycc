@@ -9,7 +9,7 @@ class Token:
         for inp in tx.get_input_group(0):
             input_tx = TxValidator(tx.app, tx.app.chain.get_tx_confirmed(inp.previous_output[0]))
             # This will break because the output index needs to be translated for the group
-            # In reality the thing to do is to call validate() but not do I/O
+            # In reality the thing to do is to call validate() to get the spec, but not do I/O
             # TODO: check token ID on the input
             # TODO: check that input tx has right eval code
             tot_input += input_tx.params['tokenoshi'][inp.previous_output[1]]
@@ -27,11 +27,14 @@ class Token:
 token_link = SpendBy('token.transfer')
 
 
-tokens = Outputs(
-    script = token_link,
-    amount = ExactAmount(0),
-    data = {"tokenoshi": Amount(min=1)}
-)
+outputs = [
+    Outputs(
+        script = token_link,
+        amount = ExactAmount(0),
+        data = {"tokenoshi": Amount(min=1)}
+    ),
+    OptionalOutput(P2PKH())
+]
 
 
 schema = {
@@ -40,20 +43,14 @@ schema = {
             "inputs": [
                 Input(P2PKH())
             ],
-            "outputs": [
-                tokens,
-                OptionalOutput(P2PKH())
-            ]
+            "outputs": outputs
         },
         "transfer": {
             "inputs": [
                 Inputs(token_link),
                 Input(P2PKH())
             ],
-            "outputs": [
-                tokens,
-                OptionalOutput(P2PKH())
-            ],
+            "outputs": outputs,
             "token": Token
         },
     }
