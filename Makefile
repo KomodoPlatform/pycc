@@ -1,5 +1,5 @@
 
-build:
+pycctx:
 	cargo +nightly build --release
 
 cargo-watch-test:
