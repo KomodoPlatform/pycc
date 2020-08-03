@@ -81,7 +81,7 @@ pip install .
 export PYTHONPATH=:~/pycc:~/pycc/pycc/examples
 ```
 
-#### launch a new chain using https://github.com/ssadler/komodo/tree/pycc
+#### launch a new chain using https://github.com/ssadler/komodo/tree/pycc with CONFIGURE_FLAGS="--enable-pycc"
 ```shell
 ./komodod -ac_name=PYCC -ac_supply=999999 -ac_nk=96,5 -ac_blocktime=10 -testnode=1 -ac_pycc=faucet -ac_cc=2
 ```
