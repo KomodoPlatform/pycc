@@ -52,6 +52,9 @@ is required, that is encoded as a list of inputs, so the structure does not chan
 ## Setup
 
 Install rust: https://www.rust-lang.org/tools/install
+```shell
+rustup toolchain install nightly
+```
 
 #### build pycctx.so
 ```shell
