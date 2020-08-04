@@ -52,13 +52,44 @@ is required, that is encoded as a list of inputs, so the structure does not chan
 ## Setup
 
 Install rust: https://www.rust-lang.org/tools/install
-
 ```shell
-make pycctx
-virtualenv -p python3 .env
-.env/bin/activate
-pip install -r requirements_test.txt
+rustup toolchain install nightly
 ```
+
+#### build pycctx.so
+```shell
+cd ~/pycc
+make pycctx
+```
+
+#### create a new virtual env 
+```shell
+virtualenv -p python3 .env
+```
+
+#### enter virtual env
+```shell
+.env/bin/activate
+```
+
+#### install
+```shell
+pip install -r requirements_test.txt
+pip install .
+```
+
+
+#### add ~/pycc PATH 
+```shell
+export PYTHONPATH=:~/pycc:~/pycc/pycc/examples
+```
+
+#### launch a new chain using https://github.com/ssadler/komodo/tree/pycc with CONFIGURE_FLAGS="--enable-pycc"
+```shell
+./komodod -ac_name=PYCC -ac_supply=999999 -ac_nk=96,5 -ac_blocktime=10 -testnode=1 -ac_pycc=faucet -ac_cc=2
+```
+
+This chain will now redirect ALL CC validation to `~/pycc/pycc/examples/faucet.py`
 
 To run tests:
 
