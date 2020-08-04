@@ -31,12 +31,64 @@ def CCaddr_from_script(script_hexstr):
     return addr
 
 
-def CCaddr_dummy(pubkey, eval_code):
+def CCaddr_normal(pubkey, eval_code):
     cond = cc_threshold(2,[mk_cc_eval(eval_code),cc_threshold(1,[cc_secp256k1(pubkey)])])
     spk = cond.encode_condition().hex()
     spk = hex(int(len(spk)/2))[2:] + spk + 'cc'
     return CCaddr_from_script(spk) 
+
+def CCaddr_custom(pubkey, eval_code, eval_custom):
+    cond = cc_threshold(1,[mk_cc_eval(eval_code),mk_cc_eval(eval_custom)])
+    spk = cond.encode_condition().hex()
+    spk = hex(int(len(spk)/2))[2:] + spk + 'cc'
+    return CCaddr_from_script(spk) 
 ######################
+
+
+######################
+# FIXME will move this elsewhere if it's determined this 
+# is a viable method for handling global keys
+#import hashlib
+#import binascii
+#import base58
+import ecdsa
+def hash160(hexstr):
+    preshabin = binascii.unhexlify(hexstr)
+    my160 = hashlib.sha256(preshabin).hexdigest()
+    return(hashlib.new('ripemd160', binascii.unhexlify(my160)).hexdigest())
+
+def addr_from_ripemd(prefix, ripemd):
+    net_byte = prefix + ripemd
+    bina = binascii.unhexlify(net_byte)
+    sha256a = hashlib.sha256(bina).hexdigest()
+    binb = binascii.unhexlify(sha256a)
+    sha256b = hashlib.sha256(binb).hexdigest()
+    hmmmm = binascii.unhexlify(net_byte + sha256b[:8])
+    final = base58.b58encode(hmmmm)
+    return(final.decode())
+
+def WIF_compressed(byte, raw_privkey):
+    extended_key = byte+raw_privkey+'01'
+    first_sha256 = hashlib.sha256(binascii.unhexlify(extended_key[:68])).hexdigest()
+    second_sha256 = hashlib.sha256(binascii.unhexlify(first_sha256)).hexdigest()
+    # add checksum to end of extended key
+    final_key = extended_key[:68]+second_sha256[:8]
+    # Wallet Import Format = base 58 encoded final_key
+    WIF = base58.b58encode(binascii.unhexlify(final_key))
+    return(WIF.decode("utf-8"))
+
+# this will take an arbitary string and output a unique keypair+address 
+# intended to be used for global addresses with publicly known private keys
+def string_keypair(key_string):
+    privkey = hashlib.sha256(key_string.encode('utf-8')).hexdigest()
+    sk = ecdsa.SigningKey.from_string(binascii.unhexlify(privkey), curve=ecdsa.SECP256k1)
+    vk = sk.verifying_key
+    pk = vk.to_string("compressed").hex()
+    addr = addr_from_ripemd('3c', hash160(pk))
+    wif = WIF_compressed('bc', privkey)
+    return({"wif":wif, "addr": addr, "pubkey": pk})
+######################
+
 
 
 def rpc_wrap(chain, method, params):
@@ -67,15 +119,9 @@ def rpc_success(msg):
     return(json.dumps({"success": str(msg)}))
 
 
-global_addr = {
-  "wif": "UuCGjHJ5pQNjLH3qhEibx7eACnHsBRpQpvJwjz9QkiAPsG84pHw6",
-  "addr": "RB7qkc7UehLdfvk3Y2BMgxjMYTmYFrvLsH",
-  "pubkey": "0328f24468cf695ccb14d819ab21c356b7193db4d597f59b3d1424068a1fc12775"
-}
-
 DRIP_AMOUNT = 1000000
 
-schema_link = SpendBy("faucet.drip", pubkey=global_addr['pubkey'])
+schema_link = SpendBy("faucet.drip")
 
 schema = {
     "faucet": {
@@ -107,13 +153,20 @@ def cc_eval(chain, tx_bin, nIn, eval_code):
 
 
 def cc_cli(chain, code):
-    print('CODE', code)
     try:
-        code = json.loads(code) # FIXME PyccRunGlobalCCRpc in pycc.cpp needs to be fixed to allow sending objects to this, not just strings
+        code = json.loads(code)
         app = CCApp(schema, b'_', chain)
-        if code[0] == 'drip':
-            CC_addr = CCaddr_dummy(global_addr['pubkey'], app.eval_code)
+        if code[0] == 'help':
+            return json.dumps({"drip": "pycli drip [global_string]",
+                               "create": "pycli create amount_sats [global_string]"})
+        elif code[0] == 'drip':
+            if len(code) > 1:
+                global_string = str(code[1])
+                global_pair = string_keypair(global_string)
+            else:
+                global_pair = string_keypair('default')
 
+            CC_addr = CCaddr_normal(global_pair['pubkey'], app.eval_code)
 
             # FIXME generalize utxo selection, both CC and normal 
             CC_utxos = rpc_wrap(chain, 'getaddressutxos', [{"addresses":[CC_addr]}, 1] )
@@ -125,17 +178,19 @@ def cc_cli(chain, code):
                 raise BaseException("faucetdrip: no suitable utxo found")
 
             vin_tx = load_tx(chain, utxo['txid'])
-            wifs = (global_addr['wif'],)
+            wifs = (global_pair['wif'],)
 
-            myaddr = rpc_wrap(chain, 'setpubkey', [])['address']
+            setpubkey = rpc_wrap(chain, 'setpubkey', [])
+            myaddr = setpubkey['address']
+            mypk = setpubkey['pubkey']
 
             drip_tx = app.create_tx({
                 "name": "faucet.drip",
                 "inputs": [
-                    { "previous_output": (utxo['txid'], utxo['outputIndex'])}
+                    { "previous_output": (utxo['txid'], utxo['outputIndex']), "script": {"pubkey": global_pair['pubkey']}}
                 ],
                 "outputs": [
-                    { }, # CC change to global
+                    { "script": {"pubkey": global_pair['pubkey']}}, # CC change to global
                     { "script": {"address": myaddr}} # faucet drip to arbitary address
                 ]
             })
@@ -144,8 +199,6 @@ def cc_cli(chain, code):
             tx_bin = drip_tx.encode_bin()
             return rpc_success(drip_tx.encode())
 
-        elif code[0] == 'test':
-            return json.dumps({"success": "faucetdrip"})
         elif code[0] == 'create':
             if len(code) < 2:
                 raise BaseException("create: argument 2 should be amount in sats")
@@ -154,15 +207,23 @@ def cc_cli(chain, code):
             except:
                 raise BaseException("create: argument 2 should be amount in sats")
 
-            myaddr = rpc_wrap(chain, 'setpubkey', [])['address']
+            if len(code) > 2:
+                global_string = str(code[2])
+                global_pair = string_keypair(global_string)
+            else:
+                global_pair = string_keypair('default')
+
+            setpubkey = rpc_wrap(chain, 'setpubkey', [])
+            myaddr = setpubkey['address']
+            mypk = setpubkey['pubkey']
             utxo, in_amount = find_unspent(chain, [myaddr], create_amount+10000)
             create_tx = app.create_tx({
                 "name": "faucet.create",
                 "inputs": [
-                    { "previous_output": (utxo['txid'], utxo['vout']), "script": { "address": myaddr } }
+                    { "previous_output": (utxo['txid'], utxo['vout']), "script": { "address": myaddr} }
                 ],
                 "outputs": [
-                    { "amount": create_amount },
+                    { "amount": create_amount , "script": {"pubkey": global_pair['pubkey']}},
                     { "script": {"address": myaddr}, "amount": in_amount - create_amount}
                 ]
             })
