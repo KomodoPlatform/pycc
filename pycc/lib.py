@@ -7,6 +7,8 @@ from copy import deepcopy
 
 from pycctx import *
 
+import pdb
+
 # Hack because komodod expects cc_eval function and pycctx.script also exports it
 mk_cc_eval = cc_eval
 del globals()['cc_eval']
@@ -267,7 +269,9 @@ class SpendBy:
         # Check output of parent tx to make sure link is correct
         p = inp.previous_output
 
-        input_tx = TxValidator(tx.app, tx.app.chain.get_tx_confirmed(p[0]))
+        # FIXME had to change convert to bin first, need to be sure this doesn't break anything else
+        tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(p[0])) 
+        input_tx = TxValidator(tx.app, tx_in)
         out_model = input_tx.get_group_for_output(p[1])
         assert self._eq(out_model.script)
 
@@ -287,7 +291,9 @@ class SpendBy:
 
     def _check_cond(self, tx, cond):
         pubkey = self.pubkey or tx.stack.pop()
-        c = cc_threshold(2, [mk_cc_eval(tx.app.eval_code), cc_secp256k1(pubkey)])
+        c = cc_threshold(2,[mk_cc_eval(tx.app.eval_code),cc_threshold(1,[cc_secp256k1(pubkey)])])
+        # FIXME this is a more efficient condition, but seems bugs in komodod make it unable to be validated
+        #c = cc_threshold(2, [mk_cc_eval(tx.app.eval_code), cc_secp256k1(pubkey)])
         assert c.is_same_condition(cond)
         return {} if self.pubkey else { "pubkey": pubkey }
 
@@ -298,7 +304,11 @@ class SpendBy:
         else:
             pubkey = script_spec['pubkey']
             tx.stack.append(pubkey)
-        return cc_threshold(2, [mk_cc_eval(tx.app.eval_code), cc_secp256k1(pubkey)])
+        # FIXME this is a more efficient condition, but seems bugs in komodod make it unable to be validated
+        #cond = cc_threshold(2, [mk_cc_eval(tx.app.eval_code), cc_secp256k1(pubkey)])
+        cond = cc_threshold(2,[mk_cc_eval(tx.app.eval_code),cc_threshold(1,[cc_secp256k1(pubkey)])])
+        #print(cond.to_py())
+        return cond
 
 
 class Amount():
@@ -340,7 +350,8 @@ class RelativeAmount:
         total = self.diff
         for inp in tx.get_input_group(self.input_idx):
             p = inp.previous_output
-            input_tx = tx.app.chain.get_tx_confirmed(p[0])
+            input_tx = tx.app.chain.get_tx_confirmed(p[0]) # FIXME had to decode from vin first?
+            input_tx = Tx.decode_bin(input_tx)
             total += input_tx.outputs[p[1]].amount
 
         assert total == amount, "TODO: nice error message"
@@ -354,6 +365,7 @@ class RelativeAmount:
         for inp in as_list(tx.inputs[self.input_idx]):
             p = inp['previous_output']
             input_tx = tx.app.chain.get_tx_confirmed(p[0])
+            input_tx = Tx.decode(input_tx.hex()) # FIXME GIT ADD, find when this is/isn't needed, is being called differently from different places
             r += input_tx.outputs[p[1]].amount
 
         assert r >= 0, "cannot construct RelativeInput: low balance"

@@ -13,7 +13,7 @@ class CCApp:
         return self.cc_eval(*args, **kwargs)
 
     def cc_eval(self, tx_bin):
-        self.validate_tx(chain, Tx.decode_bin(tx_bin))
+        self.validate_tx(Tx.decode_bin(tx_bin))
 
     def get_model(self, name):
         try:
