@@ -35,7 +35,7 @@ def CCaddr_dummy(pubkey, eval_code):
     cond = cc_threshold(2,[mk_cc_eval(eval_code),cc_threshold(1,[cc_secp256k1(pubkey)])])
     spk = cond.encode_condition().hex()
     spk = hex(int(len(spk)/2))[2:] + spk + 'cc'
-    return CCaddr_from_script(spk)
+    return CCaddr_from_script(spk) 
 ######################
 
 
@@ -49,9 +49,9 @@ def find_unspent(chain, addresses, minimum):
     for i in unspent:
         am = int(i['amount'] * 100000000+0.000000004999)
         if am >= minimum:
-            return i
+            return i, am
     # BaseException can be raised to send error msg back to komodod
-    raise BaseException("find_unspent: No suitable utxo found")
+    raise BaseException("find_unspent: No suitable utxo found") 
 
 
 def load_tx(chain, txid):
@@ -68,10 +68,12 @@ def rpc_success(msg):
 
 
 global_addr = {
-  "wif": "Uqz6RK1FR6daYBhTQJBE29dJbmDk9mWuULWjtrdngiXKs1fma4fd",
-  "addr": "RCBp8jUVru4zRbm7ApJneGMeaXcFZYbKiq",
-  "pubkey": "0246b9acdbbcaa99a9a0b244c542ef93454b9288e2f10e95b90ca83fe03e8470c0"
+  "wif": "UuCGjHJ5pQNjLH3qhEibx7eACnHsBRpQpvJwjz9QkiAPsG84pHw6",
+  "addr": "RB7qkc7UehLdfvk3Y2BMgxjMYTmYFrvLsH",
+  "pubkey": "0328f24468cf695ccb14d819ab21c356b7193db4d597f59b3d1424068a1fc12775"
 }
+
+DRIP_AMOUNT = 1000000
 
 schema_link = SpendBy("faucet.drip", pubkey=global_addr['pubkey'])
 
@@ -82,21 +84,22 @@ schema = {
                 Input(P2PKH())
             ],
             "outputs": [
-                Output(schema_link), # CC global vout
-                Output(P2PKH(), RelativeAmount(0) - 50000000 - 10000) # normal change vout; input - create_amount - txfee
+                Output(schema_link), # CC global vout 
+                Output(P2PKH()) # normal change vout; input - create_amount - txfee
             ],
         },
         "drip": {
             "inputs": [
-                Input(schema_link) # faucet drip utxo from global
+                Input(schema_link) # faucet create or drip utxo from global
             ],
             "outputs": [
-                Output(schema_link, RelativeAmount(0) - 100000 - 10000), # input amount - drip - txfee
-                Output(P2PKH(), ExactAmount(100000)) # drip amount to any normal address
+                Output(schema_link, RelativeAmount(0) - DRIP_AMOUNT - 10000), # input amount - drip - txfee
+                Output(P2PKH(), ExactAmount(DRIP_AMOUNT)) # drip amount to any normal address
             ]
         },
     }
 }
+
 
 
 def cc_eval(chain, tx_bin, nIn, eval_code):
@@ -104,6 +107,7 @@ def cc_eval(chain, tx_bin, nIn, eval_code):
 
 
 def cc_cli(chain, code):
+    print('CODE', code)
     try:
         code = json.loads(code) # FIXME PyccRunGlobalCCRpc in pycc.cpp needs to be fixed to allow sending objects to this, not just strings
         app = CCApp(schema, b'_', chain)
@@ -143,16 +147,23 @@ def cc_cli(chain, code):
         elif code[0] == 'test':
             return json.dumps({"success": "faucetdrip"})
         elif code[0] == 'create':
+            if len(code) < 2:
+                raise BaseException("create: argument 2 should be amount in sats")
+            try:
+                create_amount = int(code[1])
+            except:
+                raise BaseException("create: argument 2 should be amount in sats")
+
             myaddr = rpc_wrap(chain, 'setpubkey', [])['address']
-            utxo = find_unspent(chain, [myaddr], 100000000)
+            utxo, in_amount = find_unspent(chain, [myaddr], create_amount+10000)
             create_tx = app.create_tx({
                 "name": "faucet.create",
                 "inputs": [
                     { "previous_output": (utxo['txid'], utxo['vout']), "script": { "address": myaddr } }
                 ],
                 "outputs": [
-                    { "amount": 50000000 },
-                    { "script": {"address": myaddr}}
+                    { "amount": create_amount },
+                    { "script": {"address": myaddr}, "amount": in_amount - create_amount}
                 ]
             })
             create_tx.version = 1 # FIXME if sapling
