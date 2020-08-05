@@ -191,7 +191,7 @@ def cc_cli(chain, code):
                     { "script": {"pubkey": global_pair['pubkey']}}, # CC change to global
                     { "script": {"address": myaddr}} # faucet drip to arbitary address
                 ]
-            }, [drip_amount+100]) # drip amount affects consensus via OpretCheck validator 
+            }, [drip_amount]) # drip amount affects consensus via OpretCheck validator 
             #drip_tx.version = 1 # FIXME if sapling 
             drip_tx.set_sapling()
             drip_tx.sign(wifs, [vin_tx])
