@@ -16,12 +16,13 @@ del globals()['cc_eval']
 
 
 class TxConstructor:
-    def __init__(self, app, spec):
+    def __init__(self, app, spec, extra_data=[]):
         self.model = app.get_model(spec['name'])
         self.app = app
         self.spec = deepcopy(spec)
         self.params = {}
         self.stack = [] # TODO: phase out in favour of params
+        self.extra_data = extra_data
 
     def construct(self):
         def f(l):
@@ -41,9 +42,12 @@ class TxConstructor:
         (input_groups, inputs) = f('inputs')
         (output_groups, outputs) = f('outputs')
 
+        if self.extra_data:
+            self.stack.append(self.extra_data)
+
         params = [self.spec['name'], (input_groups, output_groups), self.params] + self.stack
         outputs += [TxOut.op_return(encode_params(params))]
-
+        #print('FINAL STACK', self.stack)
         return Tx(
             inputs = tuple(inputs),
             outputs = tuple(outputs)
@@ -80,6 +84,8 @@ class TxValidator:
 
         for validate in self.model.get('validators', []):
             validate(self, spec)
+            # FIXME hope to be able to raise exceptions here 
+            # and have them shown in `sendrawtransaction` response 
 
         return spec
 
@@ -290,10 +296,10 @@ class SpendBy:
                 self.pubkey == other.pubkey)
 
     def _check_cond(self, tx, cond):
-        pubkey = self.pubkey or tx.stack.pop()
+        # FIXME changed this from tx.stack.pop() because of extra_data change
+        # make sure this did not break txes without extra data
+        pubkey = self.pubkey or tx.stack.pop(0) 
         c = cc_threshold(2,[mk_cc_eval(tx.app.eval_code),cc_threshold(1,[cc_secp256k1(pubkey)])])
-        # FIXME this is a more efficient condition, but seems bugs in komodod make it unable to be validated
-        #c = cc_threshold(2, [mk_cc_eval(tx.app.eval_code), cc_secp256k1(pubkey)])
         assert c.is_same_condition(cond)
         return {} if self.pubkey else { "pubkey": pubkey }
 
@@ -338,21 +344,67 @@ class ExactAmount:
         return self.amount
 
 
-class RelativeAmount:
+class ExactAmountUserArg:
+    def __init__(self, input_idx, diff=0):
+        self.input_idx = input_idx
+        self.diff = diff
+
+    # FIXME test which of these are *actually* neccesary
+    def __sub__(self, other):
+        return ExactAmountUserArg(self.input_idx, self.diff - other)
+
+    def __add__(self, other):
+        return ExactAmountUserArg(self.input_idx, self.diff + other)
+
+    def __mul__(self, other):
+        return ExactAmountUserArg(self.input_idx, self.diff * other)
+
+    def __neg__(self):
+        return ExactAmountUserArg(self.input_idx, self.diff)*-1
+
+    def __int__(self):
+        return self.diff 
+    
+    def consume(self, tx, amount):
+        txid_in = tx.get_input_group(self.input_idx)[0].previous_output[0] # FIXME why does get_input_group return a tuple????
+        tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(txid_in))
+        self.diff = decode_params(get_opret(tx_in))[-1][0] # FIXME hard coded data structure, want a PoC
+        assert amount == self.diff
+        return self.diff
+
+    def construct(self, tx, amount):
+        assert amount is None, "ExactAmountUserArg should have no amount in spec"
+        txid_in = tx.spec['inputs'][self.input_idx]['previous_output'][0]
+        tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(txid_in))
+        self.diff = decode_params(get_opret(tx_in))[-1][0] # FIXME hard coded, want a PoC
+        return self.diff
+
+
+# FIXME this probably should not have to be a unique class 
+# try to use __rsub__ __radd__ so we can do something like 
+# Output(schema_link, RelativeAmount(0) - ExactAmountUserArg(0))
+# in the schema 
+class RelativeAmountUserArg:
     def __init__(self, input_idx, diff=0):
         self.input_idx = input_idx
         self.diff = diff
 
     def __sub__(self, n):
-        return RelativeAmount(self.input_idx, self.diff - n)
+        return RelativeAmountUserArg(self.input_idx, self.diff - n)
+
+    def __add__(self, n):
+        return RelativeAmountUserArg(self.input_idx, self.diff + n)
 
     def consume(self, tx, amount):
         total = self.diff
         for inp in tx.get_input_group(self.input_idx):
             p = inp.previous_output
-            input_tx = tx.app.chain.get_tx_confirmed(p[0]) # FIXME had to decode from vin first?
+            input_tx = tx.app.chain.get_tx_confirmed(p[0])
             input_tx = Tx.decode_bin(input_tx)
             total += input_tx.outputs[p[1]].amount
+            user_diff = decode_params(get_opret(input_tx))[-1][0]
+            total -= user_diff
+
 
         assert total == amount, "TODO: nice error message"
         return amount
@@ -362,14 +414,73 @@ class RelativeAmount:
 
         r = self.diff
 
+
         for inp in as_list(tx.inputs[self.input_idx]):
             p = inp['previous_output']
             input_tx = tx.app.chain.get_tx_confirmed(p[0])
-            input_tx = Tx.decode(input_tx.hex()) # FIXME GIT ADD, find when this is/isn't needed, is being called differently from different places
+            input_tx = Tx.decode(input_tx.hex())
+            r += input_tx.outputs[p[1]].amount
+            user_diff = decode_params(get_opret(input_tx))[-1][0]
+            r -= user_diff
+
+        assert r >= 0, "cannot construct RelativeInput: low balance"
+        return r
+
+
+class RelativeAmount:
+    def __init__(self, input_idx, diff=0):
+        self.input_idx = input_idx
+        self.diff = diff
+
+    def __sub__(self, n):
+        return RelativeAmount(self.input_idx, self.diff - n)
+
+    def __add__(self, n):
+        return RelativeAmount(self.input_idx, self.diff + n)
+
+    def consume(self, tx, amount):
+        total = self.diff
+        for inp in tx.get_input_group(self.input_idx):
+            p = inp.previous_output
+            input_tx = tx.app.chain.get_tx_confirmed(p[0])
+            input_tx = Tx.decode_bin(input_tx)
+            total += input_tx.outputs[p[1]].amount
+
+
+        assert total == amount, "TODO: nice error message"
+        return amount
+
+    def construct(self, tx, spec):
+        assert spec == None, "amount should not be provided for RelativeAmount"
+
+        r = self.diff
+
+
+        for inp in as_list(tx.inputs[self.input_idx]):
+            p = inp['previous_output']
+            input_tx = tx.app.chain.get_tx_confirmed(p[0])
+            input_tx = Tx.decode(input_tx.hex())
             r += input_tx.outputs[p[1]].amount
 
         assert r >= 0, "cannot construct RelativeInput: low balance"
         return r
+
+# this is a very basic PoC for how a "general validator" can work
+# this is simply checking that output_idx's amount is the same as the first value on the stack
+# this value was added to the stack in TxConstructor via `extra_data`
+# will need to generalize the data format
+class OpretCheck:
+    def __init__(self, output_idx,spec=None, tx=None):
+        self.tx = tx
+        self.spec = spec
+        self.vout = output_idx
+
+    def __call__(self, tx, spec):
+        #txid_in = tx.get_input_group(self.vin)[0].previous_output[0] # FIXME why are these tuples????
+        # don't seem to have easy access to the chain object from here, so cannot lookup vin tx
+        assert tx.stack[0][0] == tx.get_output_group(self.vout)[0].amount, "OpretCheck validation failed"
+        return(0)
+
 
 def as_list(val):
     return val if type(val) == list else [val]

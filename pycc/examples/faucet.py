@@ -36,12 +36,6 @@ def CCaddr_normal(pubkey, eval_code):
     spk = cond.encode_condition().hex()
     spk = hex(int(len(spk)/2))[2:] + spk + 'cc'
     return CCaddr_from_script(spk) 
-
-def CCaddr_custom(pubkey, eval_code, eval_custom):
-    cond = cc_threshold(1,[mk_cc_eval(eval_code),mk_cc_eval(eval_custom)])
-    spk = cond.encode_condition().hex()
-    spk = hex(int(len(spk)/2))[2:] + spk + 'cc'
-    return CCaddr_from_script(spk) 
 ######################
 
 
@@ -90,7 +84,6 @@ def string_keypair(key_string):
 ######################
 
 
-
 def rpc_wrap(chain, method, params):
     return(json.loads(chain.rpc(json.dumps({"method": method, "params": params, "id":"pyrpc"}))))
 
@@ -119,8 +112,6 @@ def rpc_success(msg):
     return(json.dumps({"success": str(msg)}))
 
 
-DRIP_AMOUNT = 1000000
-
 schema_link = SpendBy("faucet.drip")
 
 schema = {
@@ -139,8 +130,11 @@ schema = {
                 Input(schema_link) # faucet create or drip utxo from global
             ],
             "outputs": [
-                Output(schema_link, RelativeAmount(0) - DRIP_AMOUNT - 10000), # input amount - drip - txfee
-                Output(P2PKH(), ExactAmount(DRIP_AMOUNT)) # drip amount to any normal address
+                Output(schema_link, RelativeAmountUserArg(0) - 10000), # input amount - drip - txfee
+                Output(P2PKH(), ExactAmountUserArg(0)) # drip amount to any normal address
+            ],
+            "validators": [
+                OpretCheck(1) # this validator uses hard coded data structure for stack at the moment, need to standarize stack data structure 
             ]
         },
     }
@@ -157,8 +151,9 @@ def cc_cli(chain, code):
         code = json.loads(code)
         app = CCApp(schema, b'_', chain)
         if code[0] == 'help':
+            #pdb.set_trace()
             return json.dumps({"drip": "pycli drip [global_string]",
-                               "create": "pycli create amount_sats [global_string]"})
+                               "create": "pycli create amount_sats drip_amount [global_string]"})
         elif code[0] == 'drip':
             if len(code) > 1:
                 global_string = str(code[1])
@@ -178,13 +173,16 @@ def cc_cli(chain, code):
                 raise BaseException("faucetdrip: no suitable utxo found")
 
             vin_tx = load_tx(chain, utxo['txid'])
+            vin_opret = decode_params(get_opret(vin_tx))
+            drip_amount = vin_opret[-1][0]
+
             wifs = (global_pair['wif'],)
 
             setpubkey = rpc_wrap(chain, 'setpubkey', [])
             myaddr = setpubkey['address']
             mypk = setpubkey['pubkey']
 
-            drip_tx = app.create_tx({
+            drip_tx = app.create_tx_extra_data({
                 "name": "faucet.drip",
                 "inputs": [
                     { "previous_output": (utxo['txid'], utxo['outputIndex']), "script": {"pubkey": global_pair['pubkey']}}
@@ -193,22 +191,29 @@ def cc_cli(chain, code):
                     { "script": {"pubkey": global_pair['pubkey']}}, # CC change to global
                     { "script": {"address": myaddr}} # faucet drip to arbitary address
                 ]
-            })
-            drip_tx.version = 1 # FIXME if sapling 
+            }, [drip_amount+100]) # drip amount affects consensus via OpretCheck validator 
+            #drip_tx.version = 1 # FIXME if sapling 
+            drip_tx.set_sapling()
             drip_tx.sign(wifs, [vin_tx])
             tx_bin = drip_tx.encode_bin()
             return rpc_success(drip_tx.encode())
 
         elif code[0] == 'create':
-            if len(code) < 2:
+            if len(code) < 3:
                 raise BaseException("create: argument 2 should be amount in sats")
             try:
                 create_amount = int(code[1])
             except:
                 raise BaseException("create: argument 2 should be amount in sats")
 
-            if len(code) > 2:
-                global_string = str(code[2])
+            try:
+                drip_amount = int(code[2])
+                assert drip_amount > 0
+            except:
+                raise BaseException("create: drip_amount must be amount in sat and >0 ")
+
+            if len(code) > 3:
+                global_string = str(code[3])
                 global_pair = string_keypair(global_string)
             else:
                 global_pair = string_keypair('default')
@@ -217,7 +222,7 @@ def cc_cli(chain, code):
             myaddr = setpubkey['address']
             mypk = setpubkey['pubkey']
             utxo, in_amount = find_unspent(chain, [myaddr], create_amount+10000)
-            create_tx = app.create_tx({
+            create_tx = app.create_tx_extra_data({
                 "name": "faucet.create",
                 "inputs": [
                     { "previous_output": (utxo['txid'], utxo['vout']), "script": { "address": myaddr} }
@@ -226,8 +231,9 @@ def cc_cli(chain, code):
                     { "amount": create_amount , "script": {"pubkey": global_pair['pubkey']}},
                     { "script": {"address": myaddr}, "amount": in_amount - create_amount}
                 ]
-            })
-            create_tx.version = 1 # FIXME if sapling
+            }, [drip_amount])
+            #create_tx.version = 1 # FIXME if sapling
+            create_tx.set_sapling()
             vin_tx = load_tx(chain, utxo['txid'])
             mywif = rpc_wrap(chain, 'dumpprivkey', [myaddr])
             create_tx.sign((mywif,), [vin_tx])
