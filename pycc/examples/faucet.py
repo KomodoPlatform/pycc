@@ -258,7 +258,7 @@ def faucet_drip(app, global_string='default'):
             {"script": {"pubkey": global_pair['pubkey']}}, # CC change to global
             {"script": {"address": myaddr}} # faucet drip to arbitary address
         ]
-    }, {"TxPoW": txpow+1, "AmountUserArg": drip_amount}, txpow, wifs, [vin_tx], True)
+    }, {"TxPoW": txpow, "AmountUserArg": drip_amount}, txpow, wifs, [vin_tx], True)
     tx_bin = drip_tx.encode_bin()
     return rpc_success(drip_tx.encode())
 
