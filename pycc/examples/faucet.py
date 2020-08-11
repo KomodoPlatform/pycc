@@ -100,19 +100,20 @@ def rpc_wrap(chain, method, *params):
     return(json.loads(chain.rpc(json.dumps({"method": method, "params": list(params), "id": "pyrpc"}))))
 
 
-def find_input(chain, addresses, amount, CCflag):
+def find_input(chain, addresses, amount, CCflag=False):
     if CCflag:
         unspent = rpc_wrap(chain, 'getaddressutxos', {"addresses": addresses}, 1)
     else:
         unspent = rpc_wrap(chain, 'getaddressutxos', {"addresses": addresses})
     for i in unspent:
         # FIXME this is a hacky way to disclude p2pk utxos;
-        # will remove this when pycc issue#11 is addresses
+        # will remove this when pycc issue#11 is addressed
         if i['script'].startswith('76') or CCflag:
             if i['satoshis'] >= amount:
                 vin_tx = load_tx(chain, i['txid'])
                 vin = {"previous_output": (i['txid'], i['outputIndex']),
-                       "script": {"address": i['address']}}
+                       "script": {"address": i['address']},
+                       "amount": i['satoshis']}
                 return vin, vin_tx, i['satoshis']
     raise IntendExcept("find_input: No suitable utxo found")
 
@@ -121,7 +122,6 @@ def find_input(chain, addresses, amount, CCflag):
 # could be resource intensive depending on getaddressutxos output
 def find_inputs(chain, addresses, minimum, CCflag=False):
     vins = []
-    vin_txes = []
     total = 0
     if CCflag:
         unspent = rpc_wrap(chain, 'getaddressutxos', {"addresses": addresses}, 1)
@@ -129,15 +129,15 @@ def find_inputs(chain, addresses, minimum, CCflag=False):
         unspent = rpc_wrap(chain, 'getaddressutxos', {"addresses": addresses})
     for i in unspent:
         # FIXME this is a hacky way to disclude p2pk utxos;
-        # will remove this when pycc issue#11 is addresses
+        # will remove this when pycc issue#11 is addressed
         if i['script'].startswith('76') or CCflag:
             am = i['satoshis']
             total += am
             vins.append({"previous_output": (i['txid'], i['outputIndex']),
-                         "script": {"address": i['address']}})
-            vin_txes.append(load_tx(chain, i['txid']))
+                         "script": {"address": i['address']},
+                         "amount": i['satoshis']})
             if total >= minimum:
-                return vins, total, vin_txes
+                return vins, total
     raise IntendExcept("find_inputs: No suitable utxo set found")
 
 
@@ -194,6 +194,17 @@ schema = {
     }
 }
 
+# TODO 
+# once mixed mode is ready, make it to where faucet.create cannot be done to an address that already has a faucet on it 
+# possibly a "faucet.add" 
+# maybe a "canspendfrommempool" flag 
+# min confirmations flag
+# let creator claim back faucet amount
+# mesh tokens pycc with faucet
+# mempool flag for find_input(s) - probably best to have cpp method in pycc.cpp
+
+
+
 
 def cc_eval(chain, tx_bin, nIn, eval_code):
     return CCApp(schema, eval_code, chain).cc_eval(tx_bin)
@@ -213,7 +224,7 @@ def faucet_create(app, create_amount='fail', drip_amount='fail', txpow=0, global
     mypk = setpubkey['pubkey']
     global_pair = string_keypair(global_string)
 
-    vins, vins_amount, vin_txes = find_inputs(app.chain, [myaddr], create_amount+10000)
+    vins, vins_amount = find_inputs(app.chain, [myaddr], create_amount+10000)
 
     create_tx = app.create_tx_extra_data({
         "name": "faucet.create",
@@ -228,7 +239,7 @@ def faucet_create(app, create_amount='fail', drip_amount='fail', txpow=0, global
     # from within TxConstructor
     create_tx.set_sapling()
     mywif = rpc_wrap(app.chain, 'dumpprivkey', myaddr)
-    create_tx.sign((mywif,), vin_txes)
+    create_tx.sign((mywif,))
     return(rpc_success(create_tx.encode()))
 
 
@@ -258,8 +269,7 @@ def faucet_drip(app, global_string='default'):
             {"script": {"pubkey": global_pair['pubkey']}}, # CC change to global
             {"script": {"address": myaddr}} # faucet drip to arbitary address
         ]
-    }, {"TxPoW": txpow, "AmountUserArg": drip_amount}, txpow, wifs, [vin_tx], True)
-    tx_bin = drip_tx.encode_bin()
+    }, {"TxPoW": txpow, "AmountUserArg": drip_amount}, txpow, wifs, [], True)
     return rpc_success(drip_tx.encode())
 
 

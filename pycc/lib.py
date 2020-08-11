@@ -41,7 +41,7 @@ class TxConstructor:
         (input_groups, inputs) = f('inputs')
         (output_groups, outputs) = f('outputs')
 
-
+        #pdb.set_trace()
         params = [self.spec['name'], (input_groups, output_groups), self.params] + self.stack
         outputs += [TxOut.op_return(encode_params(params))]
         return Tx(
@@ -133,9 +133,11 @@ def decode_params(b):
     return eval(b)
 
 
+# FIXME IN
 class Input:
-    def __init__(self, script):
+    def __init__(self, script, amount=None):
         self.script = script
+        self.amount = amount
 
     def consume(self, tx, inputs):
         assert len(inputs) == 1
@@ -144,14 +146,17 @@ class Input:
     def consume_input(self, tx, inp):
         return {
             "previous_output": inp.previous_output,
-            "script": self.script.consume_input(tx, inp) or {}
+            "script": self.script.consume_input(tx, inp) or {},
+            "input_amount": self.amount or {}
         }
 
     def construct(self, tx, spec):
         return [self.construct_input(tx, spec)]
 
     def construct_input(self, tx, spec):
-        return TxIn(spec['previous_output'], self.script.construct_input(tx, spec.get('script', {})))
+        if 'amount' in spec:
+            self.amount = spec['amount']
+        return TxIn(spec['previous_output'], self.script.construct_input(tx, spec.get('script', {})),input_amount=self.amount)
 
 
 class Inputs:
@@ -300,7 +305,6 @@ class SpendBy:
     def _check_cond(self, tx, cond):
         pubkey = self.pubkey or tx.stack.pop()
         c = cc_threshold(2,[mk_cc_eval(tx.app.eval_code),cc_threshold(1,[cc_secp256k1(pubkey)])])
-
         assert c.is_same_condition(cond)
         return {} if self.pubkey else { "pubkey": pubkey }
 
