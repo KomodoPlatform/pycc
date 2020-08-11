@@ -1,6 +1,7 @@
 
 from pycc.lib import *
 from pycctx import Tx
+import time
 
 
 class CCApp:
@@ -31,3 +32,22 @@ class CCApp:
     # Go Condensed -> TX
     def create_tx(self, spec):
         return TxConstructor(self, spec).construct()
+
+    def create_tx_extra_data(self, spec, data):
+        return TxConstructor(self, spec, params=data).construct()
+
+    # needed for TxPoW validated txes 
+    def create_tx_pow(self, spec, data, txpow, wifs, vins, sapling):
+        # start_time is just used as "entropy",
+        # needs to change each time this function is called or 
+        # can result in user never finding a solution
+        # using time is suboptimal because if it fails, on retry it will use some of the same numbers again
+        start_time = int(time.time())
+        for i in range(0,100000):
+            tx = TxConstructor(self, spec, params={**data, **{"txpown": start_time}}).construct()
+            tx.set_sapling() if sapling else tx.set_standard()
+            tx.sign(wifs, vins)
+            if tx.hash.startswith('0'*txpow) and tx.hash.endswith('0'*txpow):
+                return(tx)
+            start_time += 1
+        raise IntendExcept("txpow: solution not found after 100000 attempts, try again")

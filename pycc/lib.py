@@ -16,13 +16,12 @@ del globals()['cc_eval']
 
 
 class TxConstructor:
-    def __init__(self, app, spec, extra_data=[]):
+    def __init__(self, app, spec, params={}):
         self.model = app.get_model(spec['name'])
         self.app = app
         self.spec = deepcopy(spec)
-        self.params = {}
+        self.params = params
         self.stack = [] # TODO: phase out in favour of params
-        self.extra_data = extra_data
 
     def construct(self):
         def f(l):
@@ -42,12 +41,9 @@ class TxConstructor:
         (input_groups, inputs) = f('inputs')
         (output_groups, outputs) = f('outputs')
 
-        if self.extra_data:
-            self.stack.append(self.extra_data)
 
         params = [self.spec['name'], (input_groups, output_groups), self.params] + self.stack
         outputs += [TxOut.op_return(encode_params(params))]
-        #print('FINAL STACK', self.stack)
         return Tx(
             inputs = tuple(inputs),
             outputs = tuple(outputs)
@@ -71,7 +67,6 @@ class TxValidator:
 
     def validate(self):
         spec = {"txid": self.tx.hash, "inputs": [], "outputs": [], "name": self.name}
-
         def f(groups, l, nodes):
             assert len(groups) == len(self.model[l])
             assert sum(groups) == len(nodes)
@@ -84,8 +79,8 @@ class TxValidator:
 
         for validate in self.model.get('validators', []):
             validate(self, spec)
-            # FIXME hope to be able to raise exceptions here 
-            # and have them shown in `sendrawtransaction` response 
+            # FIXME hope to be able to raise exceptions here
+            # and have them shown in `sendrawtransaction` response
 
         return spec
 
@@ -249,6 +244,13 @@ class P2PKH:
         return ScriptPubKey.from_address(spec['address'])
 
 
+# need SpendByUserArg
+# has to be able to be variable at creation of plan, but static afterwards
+# plan creation tx will use normal Spendby
+# anything able to spend these must check that outputs always go back to the same pubkey
+
+
+
 class SpendBy:
     """
     SpendBy ensures that an output is spent by a given type of input
@@ -263,7 +265,7 @@ class SpendBy:
         self.pubkey = pubkey
 
         # TODO: sanity check on structure? make sure that inputs and outputs are compatible
-    
+   
     def consume_output(self, tx, script):
         # When checking the output there's nothing to check except the script
         return self._check_cond(tx, script.parse_condition())
@@ -276,7 +278,7 @@ class SpendBy:
         p = inp.previous_output
 
         # FIXME had to change convert to bin first, need to be sure this doesn't break anything else
-        tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(p[0])) 
+        tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(p[0]))
         input_tx = TxValidator(tx.app, tx_in)
         out_model = input_tx.get_group_for_output(p[1])
         assert self._eq(out_model.script)
@@ -291,15 +293,16 @@ class SpendBy:
 
     def _eq(self, other):
         # Should compare the pubkey here? maybe it's not neccesary
-        return (type(self) == type(other) and 
+        return (type(self) == type(other) and
                 self.name == other.name and
                 self.pubkey == other.pubkey)
 
     def _check_cond(self, tx, cond):
         # FIXME changed this from tx.stack.pop() because of extra_data change
         # make sure this did not break txes without extra data
-        pubkey = self.pubkey or tx.stack.pop(0) 
+        pubkey = self.pubkey or tx.stack.pop(0)
         c = cc_threshold(2,[mk_cc_eval(tx.app.eval_code),cc_threshold(1,[cc_secp256k1(pubkey)])])
+
         assert c.is_same_condition(cond)
         return {} if self.pubkey else { "pubkey": pubkey }
 
@@ -313,6 +316,7 @@ class SpendBy:
         # FIXME this is a more efficient condition, but seems bugs in komodod make it unable to be validated
         #cond = cc_threshold(2, [mk_cc_eval(tx.app.eval_code), cc_secp256k1(pubkey)])
         cond = cc_threshold(2,[mk_cc_eval(tx.app.eval_code),cc_threshold(1,[cc_secp256k1(pubkey)])])
+
         #print(cond.to_py())
         return cond
 
@@ -335,7 +339,7 @@ class Amount():
 class ExactAmount:
     def __init__(self, amount):
         self.amount = amount
-    
+   
     def consume(self, tx, amount):
         assert amount == self.amount
 
@@ -353,8 +357,14 @@ class ExactAmountUserArg:
     def __sub__(self, other):
         return ExactAmountUserArg(self.input_idx, self.diff - other)
 
+    def __rsub__(self, other):
+        return ExactAmountUserArg(self.input_idx, other - self.diff)   
+
     def __add__(self, other):
         return ExactAmountUserArg(self.input_idx, self.diff + other)
+
+    def __radd__(self, other):
+        return ExactAmountUserArg(self.input_idx, other + self.diff)
 
     def __mul__(self, other):
         return ExactAmountUserArg(self.input_idx, self.diff * other)
@@ -363,12 +373,12 @@ class ExactAmountUserArg:
         return ExactAmountUserArg(self.input_idx, self.diff)*-1
 
     def __int__(self):
-        return self.diff 
-    
+        return self.diff
+   
     def consume(self, tx, amount):
         txid_in = tx.get_input_group(self.input_idx)[0].previous_output[0] # FIXME why does get_input_group return a tuple????
         tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(txid_in))
-        self.diff = decode_params(get_opret(tx_in))[-1][0] # FIXME hard coded data structure, want a PoC
+        self.diff = decode_params(get_opret(tx_in))[2]['AmountUserArg'] # FIXME hard coded data structure, want a PoC
         assert amount == self.diff
         return self.diff
 
@@ -376,14 +386,14 @@ class ExactAmountUserArg:
         assert amount is None, "ExactAmountUserArg should have no amount in spec"
         txid_in = tx.spec['inputs'][self.input_idx]['previous_output'][0]
         tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(txid_in))
-        self.diff = decode_params(get_opret(tx_in))[-1][0] # FIXME hard coded, want a PoC
+        self.diff = decode_params(get_opret(tx_in))[2]['AmountUserArg'] # FIXME hard coded, want a PoC
         return self.diff
 
 
-# FIXME this probably should not have to be a unique class 
-# try to use __rsub__ __radd__ so we can do something like 
+# FIXME this probably should not have to be a unique class
+# try to use __rsub__ __radd__ so we can do something like
 # Output(schema_link, RelativeAmount(0) - ExactAmountUserArg(0))
-# in the schema 
+# in the schema
 class RelativeAmountUserArg:
     def __init__(self, input_idx, diff=0):
         self.input_idx = input_idx
@@ -402,7 +412,7 @@ class RelativeAmountUserArg:
             input_tx = tx.app.chain.get_tx_confirmed(p[0])
             input_tx = Tx.decode_bin(input_tx)
             total += input_tx.outputs[p[1]].amount
-            user_diff = decode_params(get_opret(input_tx))[-1][0]
+            user_diff = decode_params(get_opret(input_tx))[2]['AmountUserArg']
             total -= user_diff
 
 
@@ -410,7 +420,7 @@ class RelativeAmountUserArg:
         return amount
 
     def construct(self, tx, spec):
-        assert spec == None, "amount should not be provided for RelativeAmount"
+        assert spec == None, "amount should not be provided for RelativeAmountUserArg"
 
         r = self.diff
 
@@ -420,10 +430,10 @@ class RelativeAmountUserArg:
             input_tx = tx.app.chain.get_tx_confirmed(p[0])
             input_tx = Tx.decode(input_tx.hex())
             r += input_tx.outputs[p[1]].amount
-            user_diff = decode_params(get_opret(input_tx))[-1][0]
+            user_diff = decode_params(get_opret(input_tx))[2]['AmountUserArg']
             r -= user_diff
 
-        assert r >= 0, "cannot construct RelativeInput: low balance"
+        assert r >= 0, "cannot construct RelativeInputUserArg: low balance"
         return r
 
 
@@ -467,20 +477,36 @@ class RelativeAmount:
 
 # this is a very basic PoC for how a "general validator" can work
 # this is simply checking that output_idx's amount is the same as the first value on the stack
-# this value was added to the stack in TxConstructor via `extra_data`
+# this value was added to the params in TxConstructor
 # will need to generalize the data format
-class OpretCheck:
+class AmountUserArg:
     def __init__(self, output_idx,spec=None, tx=None):
         self.tx = tx
         self.spec = spec
         self.vout = output_idx
 
     def __call__(self, tx, spec):
-        #txid_in = tx.get_input_group(self.vin)[0].previous_output[0] # FIXME why are these tuples????
-        # don't seem to have easy access to the chain object from here, so cannot lookup vin tx
-        assert tx.stack[0][0] == tx.get_output_group(self.vout)[0].amount, "OpretCheck validation failed"
+        assert tx.params['AmountUserArg'] == tx.get_output_group(self.vout)[0].amount, "AmountUserArg validation failed"
         return(0)
 
 
+# set zeros in spec for static: TxPow(0,zeros=1)
+# if not set, will use "TxPoW" from input_idx's opret stack
+class TxPoW:
+    def __init__(self, input_idx, zeros=None):
+        self.zeros = zeros
+        self.input_idx = input_idx
+
+    def __call__(self, tx, spec):
+        if not self.zeros:
+            txid_in = spec['inputs'][0]['previous_output'][0]
+            tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(txid_in))
+            self.zeros = tx.params['TxPoW']
+        assert tx.tx.hash.startswith('0'*self.zeros) and tx.tx.hash.endswith('0'*self.zeros)
+        return(0)
+
 def as_list(val):
     return val if type(val) == list else [val]
+
+class IntendExcept(Exception):
+    pass
