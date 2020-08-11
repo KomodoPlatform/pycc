@@ -2,7 +2,7 @@
 from pycc import *
 from pycctx import *
 import json
-import pdb
+#import pdb
 import traceback
 
 ######################
@@ -187,10 +187,8 @@ schema = {
                 Output(P2PKH(), ExactAmountUserArg(0)) # drip amount to any normal address
             ],
             "validators": [
-                # 1 value for AmountUserArg is ensuring that vout1 of this drip matches the "AmountUserArg" value in OP_RETURN params;
-                # used in combination with ExactAmountUserArg, so a spend cannot change this param arbitarily
-                AmountUserArg(1),
-                TxPoW(0) # 0 value for TxPow is saying read vin0's OP_RETURN params to find how many leading/trailing 0s this drip must have
+                TxPoW(0), # 0 value for TxPow is saying read vin0's OP_RETURN params to find how many leading/trailing 0s this drip must have
+                CarryParams(0, ['TxPoW', 'AmountUserArg'])
             ]
         },
     }
@@ -260,7 +258,7 @@ def faucet_drip(app, global_string='default'):
             {"script": {"pubkey": global_pair['pubkey']}}, # CC change to global
             {"script": {"address": myaddr}} # faucet drip to arbitary address
         ]
-    }, {"TxPoW": txpow, "AmountUserArg": drip_amount}, txpow, wifs, [vin_tx], True)
+    }, {"TxPoW": txpow+1, "AmountUserArg": drip_amount}, txpow, wifs, [vin_tx], True)
     tx_bin = drip_tx.encode_bin()
     return rpc_success(drip_tx.encode())
 

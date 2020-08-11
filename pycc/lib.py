@@ -298,9 +298,7 @@ class SpendBy:
                 self.pubkey == other.pubkey)
 
     def _check_cond(self, tx, cond):
-        # FIXME changed this from tx.stack.pop() because of extra_data change
-        # make sure this did not break txes without extra data
-        pubkey = self.pubkey or tx.stack.pop(0)
+        pubkey = self.pubkey or tx.stack.pop()
         c = cc_threshold(2,[mk_cc_eval(tx.app.eval_code),cc_threshold(1,[cc_secp256k1(pubkey)])])
 
         assert c.is_same_condition(cond)
@@ -475,23 +473,26 @@ class RelativeAmount:
         assert r >= 0, "cannot construct RelativeInput: low balance"
         return r
 
-# this is a very basic PoC for how a "general validator" can work
-# this is simply checking that output_idx's amount is the same as the first value on the stack
-# this value was added to the params in TxConstructor
-# will need to generalize the data format
-class AmountUserArg:
-    def __init__(self, output_idx,spec=None, tx=None):
-        self.tx = tx
+
+# generic validator to ensure the params listed are the same value as input_idx tx's params
+class CarryParams:
+    def __init__(self, input_idx, params, spec=None, tx=None):
+        self.input_idx = input_idx
+        self.params = params
         self.spec = spec
-        self.vout = output_idx
+        self.tx = tx
 
     def __call__(self, tx, spec):
-        assert tx.params['AmountUserArg'] == tx.get_output_group(self.vout)[0].amount, "AmountUserArg validation failed"
-        return(0)
+        tx_in_txid = tx.tx.inputs[self.input_idx].previous_output[0]
+        tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(tx_in_txid))
+        prev_params = decode_params(get_opret(tx_in))
+        for i in self.params:
+            assert tx.params[i] == prev_params[2][i], ("OP_RETURN %s not the same as input" % i) 
+
 
 
 # set zeros in spec for static: TxPow(0,zeros=1)
-# if not set, will use "TxPoW" from input_idx's opret stack
+# if not set, will use "TxPoW" from input_idx's opret params
 class TxPoW:
     def __init__(self, input_idx, zeros=None):
         self.zeros = zeros
@@ -501,7 +502,8 @@ class TxPoW:
         if not self.zeros:
             txid_in = spec['inputs'][0]['previous_output'][0]
             tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(txid_in))
-            self.zeros = tx.params['TxPoW']
+            prev_params = decode_params(get_opret(tx_in))
+            self.zeros = prev_params[2]['TxPoW']
         assert tx.tx.hash.startswith('0'*self.zeros) and tx.tx.hash.endswith('0'*self.zeros)
         return(0)
 
