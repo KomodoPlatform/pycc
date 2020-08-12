@@ -69,7 +69,7 @@ virtualenv -p python3 .env
 
 #### enter virtual env
 ```shell
-.env/bin/activate
+source .env/bin/activate
 ```
 
 #### install
