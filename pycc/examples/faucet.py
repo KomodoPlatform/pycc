@@ -85,7 +85,12 @@ def WIF_compressed(byte, raw_privkey):
 # intended to be used for global addresses with publicly known private keys
 def string_keypair(key_string):
     privkey = hashlib.sha256(key_string.encode('utf-8')).hexdigest()
-    sk = ecdsa.SigningKey.from_string(binascii.unhexlify(privkey), curve=ecdsa.SECP256k1)
+    try:
+        sk = ecdsa.SigningKey.from_string(binascii.unhexlify(privkey), curve=ecdsa.SECP256k1)
+    except ecdsa.keys.MalformedPointError:
+         # hash again if sha256(key_string) is not on the curve; incredibly unlikely
+         # 1 - FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140
+        return(string_keypair(privkey))
     vk = sk.verifying_key
     pk = vk.to_string("compressed").hex()
     addr = addr_from_ripemd('3c', hash160(pk))
@@ -219,9 +224,7 @@ def faucet_create(app, create_amount='fail', drip_amount='fail', txpow=0, global
     except:
         return(help('faucet'))
 
-    setpubkey = rpc_wrap(app.chain, 'setpubkey')
-    myaddr = setpubkey['address']
-    mypk = setpubkey['pubkey']
+    myaddr = rpc_wrap(app.chain, 'setpubkey')['address']
     global_pair = string_keypair(global_string)
 
     vins, vins_amount = find_inputs(app.chain, [myaddr], create_amount+10000)
@@ -256,9 +259,7 @@ def faucet_drip(app, global_string='default'):
 
     wifs = (global_pair['wif'],)
 
-    setpubkey = rpc_wrap(app.chain, 'setpubkey')
-    myaddr = setpubkey['address']
-    mypk = setpubkey['pubkey']
+    myaddr = rpc_wrap(app.chain, 'setpubkey')['address']
 
     drip_tx = app.create_tx_pow({
         "name": "faucet.drip",
