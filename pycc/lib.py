@@ -44,10 +44,12 @@ class TxConstructor:
         #pdb.set_trace()
         params = [self.spec['name'], (input_groups, output_groups), self.params] + self.stack
         outputs += [TxOut.op_return(encode_params(params))]
-        return Tx(
+        tx =  Tx(
             inputs = tuple(inputs),
             outputs = tuple(outputs)
         )
+        tx.set_sapling() if self.app.chain.is_sapling() else tx.set_standard()
+        return(tx)
 
     @property
     def inputs(self):

@@ -37,7 +37,7 @@ class CCApp:
         return TxConstructor(self, spec, params=data).construct()
 
     # needed for TxPoW validated txes 
-    def create_tx_pow(self, spec, data, txpow, wifs, vins, sapling):
+    def create_tx_pow(self, spec, data, txpow, wifs, vins):
         # start_time is just used as "entropy",
         # needs to change each time this function is called or 
         # can result in user never finding a solution
@@ -45,7 +45,6 @@ class CCApp:
         start_time = int(time.time())
         for i in range(0,100000):
             tx = TxConstructor(self, spec, params={**data, **{"txpown": start_time}}).construct()
-            tx.set_sapling() if sapling else tx.set_standard()
             tx.sign(wifs, vins)
             if tx.hash.startswith('0'*txpow) and tx.hash.endswith('0'*txpow):
                 return(tx)

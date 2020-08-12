@@ -237,10 +237,6 @@ def faucet_create(app, create_amount='fail', drip_amount='fail', txpow=0, global
             {"script": {"address": myaddr}, "amount": vins_amount - create_amount - 10000}
         ]
     }, {"TxPoW": txpow, "AmountUserArg": drip_amount})
-    # create_tx.set_standard()
-    # FIXME make a "issapling" method in pycc.cpp to be accessed as chain.issapling
-    # from within TxConstructor
-    create_tx.set_sapling()
     mywif = rpc_wrap(app.chain, 'dumpprivkey', myaddr)
     create_tx.sign((mywif,))
     return(rpc_success(create_tx.encode()))
@@ -270,7 +266,7 @@ def faucet_drip(app, global_string='default'):
             {"script": {"pubkey": global_pair['pubkey']}}, # CC change to global
             {"script": {"address": myaddr}} # faucet drip to arbitary address
         ]
-    }, {"TxPoW": txpow, "AmountUserArg": drip_amount}, txpow, wifs, [], True)
+    }, {"TxPoW": txpow, "AmountUserArg": drip_amount}, txpow, wifs, [])
     return rpc_success(drip_tx.encode())
 
 
