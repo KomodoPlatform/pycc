@@ -41,7 +41,6 @@ class TxConstructor:
         (input_groups, inputs) = f('inputs')
         (output_groups, outputs) = f('outputs')
 
-        #pdb.set_trace()
         params = [self.spec['name'], (input_groups, output_groups), self.params] + self.stack
         outputs += [TxOut.op_return(encode_params(params))]
         tx =  Tx(
@@ -493,7 +492,7 @@ class CarryParams:
         tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(tx_in_txid))
         prev_params = decode_params(get_opret(tx_in))
         for i in self.params:
-            assert tx.params[i] == prev_params[2][i], ("OP_RETURN %s not the same as input" % i) 
+            assert tx.params[i] == prev_params[2][i], ("CarryParmas OP_RETURN error %s not the same as input" % i) 
 
 
 
@@ -599,7 +598,7 @@ def WIF_compressed(byte, raw_privkey):
 # this will take an arbitary string and output a unique keypair+address
 # intended to be used for global addresses with publicly known private keys
 def string_keypair(key_string):
-    privkey = hashlib.sha256(key_string.encode('utf-8')).hexdigest()
+    privkey = hashlib.sha256(str(key_string).encode('utf-8')).hexdigest()
     try:
         sk = ecdsa.SigningKey.from_string(binascii.unhexlify(privkey), curve=ecdsa.SECP256k1)
     except ecdsa.keys.MalformedPointError:
@@ -629,7 +628,7 @@ def find_input(chain, addresses, amount, CCflag=False):
         # FIXME this is a hacky way to disclude p2pk utxos;
         # will remove this when pycc issue#11 is addressed
         if i['script'].startswith('76') or CCflag:
-            if i['satoshis'] >= amount:
+            if i['satoshis'] >= amount and i['txid'] == '72adabfd62a8dbfd5b894c1fff0e65ed5c260ba78f472309a27bbeed5dc67367': # FIXME TESTING
                 vin_tx = load_tx(chain, i['txid'])
                 vin = {"previous_output": (i['txid'], i['outputIndex']),
                        "script": {"address": i['address']},

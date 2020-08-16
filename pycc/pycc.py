@@ -37,7 +37,7 @@ class CCApp:
         return TxConstructor(self, spec, params=data).construct()
 
     # needed for TxPoW validated txes 
-    def create_tx_pow(self, spec, data, txpow, wifs, vins):
+    def create_tx_pow(self, spec, txpow, wifs, data={}, vins=[]):
         # start_time is just used as "entropy",
         # needs to change each time this function is called or 
         # can result in user never finding a solution
