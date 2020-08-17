@@ -29,7 +29,7 @@ def prboom_val(seed, demo_path):
         raise Exception("prboom exited with error!"
                         "\nExit code: {}"
                         "\nLog:\n{}".format(exit_code, results))
-    if results.split('\n')[-4] == 'FINISHED: E1M1':
+    if results.split('\n')[-4] == 'FINISHED: E1M1': # FIXME make sure this is static, maybe better to search through last few params
         return(True)
 
 
@@ -42,7 +42,8 @@ class DoomDemo:
         txid_in = spec['inputs'][0]['previous_output'][self.input_idx]
         tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(txid_in))
         prev_params = decode_params(get_opret(tx_in))
-        seed = prev_params[2]['seed']
+        seed = prev_params[2]['seed'] 
+
         rawtics = decode_params(get_opret(tx.tx))[2]['rawtics']
         current_path = os.path.dirname(os.path.realpath(__file__))
         if not os.path.exists(current_path + '/temp_demos'):
@@ -53,7 +54,6 @@ class DoomDemo:
             rebuilt.write(full_demo)
 
         validated = prboom_val(seed, temp_path)
-        print("YUUUSSSSSSSSS", validated)
         os.remove(temp_path)
         if not validated:
             raise IntendExcept('Submitted bad demo, dirty cheater or broken client')
@@ -144,11 +144,12 @@ def submit_demo(app, seed=None):
 
     vin, vin_tx, vin_amount = find_input(app.chain, [CC_addr], 0, True)
     vin['script']['pubkey'] = global_pair['pubkey']
+    # FIXME add a check here to check that seed of vin matches global address
+    # could prevent a player from submitting demo if we create a bad create_funding with mismatched seed
 
     #vin['script']['pubkey'] = global_pair['pubkey'] # FIXME this causes a komodod segfault with create_tx_pow somehow?
     wifs = (global_pair['wif'],)
 
-    print('wuuuh')
     submit_tx = app.create_tx_extra_data({
         "name": "doom.submit_demo",
         "inputs": [
@@ -165,7 +166,6 @@ def submit_demo(app, seed=None):
 
 
 
-
 def create_wad(app, in_hash=False):
     if not in_hash:
         if app.chain.get_height() % 10 == 0 and not in_hash:
@@ -179,6 +179,7 @@ def create_wad(app, in_hash=False):
         return rpc_success('created: ' + wad_path)
     return(rpc_error('wad not created or already exists'))
 
+
 def make_wad(seed):
     wad_dir = sys.path[0] + '/WADS/' + str(seed)
     wad_path = wad_dir + '/' + str(seed) + '.wad'
@@ -190,13 +191,41 @@ def make_wad(seed):
         return wad_path
     return(False)
 
+
 info = {"functions": {"create_wad": create_wad,
                       "submit_demo": submit_demo,
                       "create_funding": create_funding},
         "eval": b'dd',
         "schema": schema, # FIXME this seems kind of stupid as we can assume schema dict will always exist, leaving it for now
         "help": {"create_wad": "pycli doom create_wad [hash]", # FIXME not used until pycli segfault is fixed, using blocknotify for now
-                 "submit_demo": "pycli doom submit_demo file_path", # 
+                 "submit_demo": "pycli doom submit_demo seed", # 
                  "create_funding": "pycli doom create_funding amount seed"}} 
                  # create the "faucet", this _should be_ done automatically but for v0 I will make a central node that creates these utxos every blocks % 10
+
+
+"""
+### TODO
+clean up all the fixed paths, just general path management in general
+    see if we can get away with not saving temp_demos at all, have subproc pass bytes as a literal file somehow
+
+pycli causes a segfault in komodod if it is called twice in quick succession. 
+    This can be reproduced by putting a loop in cc_cli and calling it via komodo-cli twice
+
+long term, it's much better if we can build oblige and prboom directly into the daemon, much safer 
+    could be in pycc.cpp accessed as app.chain.oblige() and app.chain.prboom() 
+
+right now the validation code is assuming the wads will exist. This means validation is currently relying on the blocknotify script, doom_notify.py; not good
+    once the pycli segfault is fixed, we can rely on "create_wad", such be safer but still not ideal 
+        consider making something similar to cc_eval, cc_cli but for blocknotify/txnotify, cc_notify
+
+change entropy mechanism from blocks % 10 to notarization txids 
+    use notarization db(NOT MEMPOOL) as we can assume it's unchanging
+
+need some mechanism other than earlytxid to force miners to pay blocks to arbitary conditions
+    maybe it could just be a single UTXO that dwiddles over time, so it can be funded once and forgotten about
+
+long term, newly syncing nodes should get latest notarization hash via nspv from all peers
+    once it's confident it has latest notarization hash
+    turn off validation until it reaches unnotarized blocks 
+"""
 
