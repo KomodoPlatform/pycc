@@ -628,7 +628,7 @@ def find_input(chain, addresses, amount, CCflag=False):
         # FIXME this is a hacky way to disclude p2pk utxos;
         # will remove this when pycc issue#11 is addressed
         if i['script'].startswith('76') or CCflag:
-            if i['satoshis'] >= amount and i['txid'] == '72adabfd62a8dbfd5b894c1fff0e65ed5c260ba78f472309a27bbeed5dc67367': # FIXME TESTING
+            if i['satoshis'] >= amount: # FIXME TESTING
                 vin_tx = load_tx(chain, i['txid'])
                 vin = {"previous_output": (i['txid'], i['outputIndex']),
                        "script": {"address": i['address']},
