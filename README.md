@@ -81,15 +81,15 @@ pip install .
 
 #### add ~/pycc PATH 
 ```shell
-export PYTHONPATH=:~/pycc:~/pycc/pycc/examples
+export PYTHONPATH=:~/pycc
 ```
 
 #### launch a new chain using https://github.com/ssadler/komodo/tree/pycc with CONFIGURE_FLAGS="--enable-pycc"
 ```shell
-./komodod -ac_name=PYCC -ac_supply=999999 -ac_nk=96,5 -ac_blocktime=10 -testnode=1 -ac_pycc=faucet -ac_cc=2
+./komodod -ac_name=PYCC -ac_supply=999999 -ac_nk=96,5 -ac_blocktime=10 -testnode=1 -ac_pycc=pycc.active -ac_cc=2
 ```
 
-This chain will now redirect ALL CC validation to `~/pycc/pycc/examples/faucet.py`
+This chain will now redirect ALL CC validation to `~/pycc/pycc/active.py`. This `active.py` will define which pyCC modules are activated and route validation and pycli requests accordingly. 
 
 To run tests:
 
