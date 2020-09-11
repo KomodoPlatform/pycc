@@ -51,6 +51,11 @@ is required, that is encoded as a list of inputs, so the structure does not chan
 
 ## Setup
 
+#### clone this repo 
+```shell
+git clone https://github.com/alrighttt/pycc-1 pycc
+```
+
 Install rust: https://www.rust-lang.org/tools/install
 ```shell
 rustup toolchain install nightly
@@ -74,17 +79,16 @@ source .env/bin/activate
 
 #### install
 ```shell
-pip install -r requirements_test.txt
-pip install .
+pip3 install -r requirements.txt
 ```
 
 
 #### add ~/pycc PATH 
 ```shell
-export PYTHONPATH=:~/pycc
+export PYTHONPATH=$PYTHONPATH:~/pycc
 ```
 
-#### launch a new chain using https://github.com/alrighttt/komodo/tree/pycc with CONFIGURE_FLAGS="--enable-pycc"
+#### launch a new chain using https://github.com/alrighttt/komodo/tree/noinput_eval with CONFIGURE_FLAGS="--enable-pycc"
 ```shell
 ./komodod -ac_name=PYCC -ac_supply=999999 -ac_nk=96,5 -ac_blocktime=10 -testnode=1 -ac_pycc=pycc.active -ac_cc=2
 ```
