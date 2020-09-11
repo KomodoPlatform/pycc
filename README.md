@@ -74,8 +74,7 @@ source .env/bin/activate
 
 #### install
 ```shell
-pip install -r requirements_test.txt
-pip install .
+pip3 install -r requirements.txt
 ```
 
 
