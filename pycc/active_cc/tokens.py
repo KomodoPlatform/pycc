@@ -41,7 +41,7 @@ schema = {
     "token": {
         "create": {
             "inputs": [
-                Input(P2PKH())
+                Inputs(P2PKH())
             ],
             "outputs": outputs
         },
@@ -57,8 +57,29 @@ schema = {
 }
 
 
-def create(app):
-    return(rpc_success('ok create')) # just dummies for now to demonstate generic active.py 
+def create(app, global_string='default', create_amount=20000):
+    setpubkey = rpc_wrap(app.chain, 'setpubkey')
+    myaddr = setpubkey['address']
+    mypk = setpubkey['pubkey']
+    global_pair = string_keypair(global_string)
+
+    vins, vins_amount = find_inputs(app.chain, [myaddr], create_amount+10000)
+
+    create_tx = app.create_tx_extra_data({
+            "name": "token.create",
+            "inputs": [vins],
+            "outputs": [
+                [{'script': {'pubkey': mypk},
+                  'tokenoshi': 10}],
+                 [{"script": {"address": myaddr}, "amount": create_amount}]]
+            
+        }, {})
+
+    mywif = rpc_wrap(app.chain, 'dumpprivkey', myaddr)
+    create_tx.sign((mywif,))
+
+    return(rpc_success(create_tx.encode())) # just dummies for now to demonstate generic active.py 
+
 
 def transfer(app):
     return(rpc_success('ok transfer'))
