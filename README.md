@@ -51,6 +51,11 @@ is required, that is encoded as a list of inputs, so the structure does not chan
 
 ## Setup
 
+#### clone this repo 
+```shell
+git clone https://github.com/alrighttt/pycc-1 pycc
+```
+
 Install rust: https://www.rust-lang.org/tools/install
 ```shell
 rustup toolchain install nightly
@@ -80,7 +85,7 @@ pip3 install -r requirements.txt
 
 #### add ~/pycc PATH 
 ```shell
-export PYTHONPATH=:~/pycc
+export PYTHONPATH=$PYTHONPATH:~/pycc
 ```
 
 #### launch a new chain using https://github.com/alrighttt/komodo/tree/pycc with CONFIGURE_FLAGS="--enable-pycc"
