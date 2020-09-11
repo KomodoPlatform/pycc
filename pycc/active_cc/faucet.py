@@ -65,6 +65,7 @@ def create(app, create_amount='fail', drip_amount='fail', txpow=0, global_string
 def drip(app, global_string='default'):
     global_pair = string_keypair(global_string)
     CC_addr = CCaddr_normal(global_pair['pubkey'], app.eval_code)
+    print('MY CC_ADDR', CC_addr)
 
     vin, vin_tx, vin_amount = find_input(app.chain, [CC_addr], 0, True)
     vin['script']['pubkey'] = global_pair['pubkey']
@@ -86,8 +87,9 @@ def drip(app, global_string='default'):
             {"script": {"pubkey": global_pair['pubkey']}}, # CC change to global
             {"script": {"address": myaddr}} # faucet drip to arbitary address
         ]
-    }, {"TxPoW": txpow, "AmountUserArg": drip_amount}, txpow, wifs, [])
+    }, txpow, wifs, {"TxPoW": txpow, "AmountUserArg": drip_amount})
     return rpc_success(drip_tx.encode())
+    #    def create_tx_pow(self, spec, txpow, wifs, data={}, vins=[]):
 
 info = {"functions": {"drip": drip, "create": create},
         "eval": b'ee',
