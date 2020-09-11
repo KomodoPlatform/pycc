@@ -109,7 +109,7 @@ def drip(app, global_string='default'):
     return rpc_success(drip_tx.encode())
 
 info = {"functions": {"drip": drip, "create": create},
-        "eval": b'ff',
+        "eval": b'f',
         "schema": schema, # FIXME this seems kind of stupid as we can assume schema dict will always exist, leaving it for now
         "help": {"drip": "pycli faucet drip [global_string]",
                  "create": "pycli faucet create amount_sats drip_amount [txpow] [global_string]"}}

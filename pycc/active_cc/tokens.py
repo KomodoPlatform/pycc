@@ -86,7 +86,7 @@ def transfer(app):
 
 
 info = {"functions": {"create": create, "transfer": transfer},
-                      "eval": b'ff',
+                      "eval": b't',
                       "schema": schema,
                       "help": {"create": "pycli tokens create example example example",
                                "transfer": "pycli tokens transfeer example example example"}}
