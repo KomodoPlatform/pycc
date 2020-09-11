@@ -7,6 +7,18 @@ import traceback
 
 schema_link = SpendBy("faucet.drip")
 
+
+class CheckState:
+    def __init__(self, state):
+        self.state = state
+
+    def __call__(self, tx, spec):
+        #pdb.set_trace()
+        prev_state = miner_end_state(tx.app, -1)['state'] # FIXME hardcoded state
+        assert prev_state == self.state
+        return(0)
+
+
 schema = {
     "faucet": {
         "create": {
@@ -24,11 +36,13 @@ schema = {
             ],
             "outputs": [
                 Output(schema_link, RelativeAmountUserArg(0) - 10000), # input amount - drip - txfee
-                Output(P2PKH(), ExactAmountUserArg(0)) # drip amount to any normal address
+                Output(P2PKH()) # drip amount to any normal address
             ],
             "validators": [
                 TxPoW(0), # 0 value for TxPow is saying read vin0's OP_RETURN params to find how many leading/trailing 0s this drip must have
                 CarryParams(0, ['TxPoW', 'AmountUserArg'])
+                #CheckState('on'),
+                #ValidEvents()
             ]
         },
     }
@@ -63,10 +77,12 @@ def create(app, create_amount='fail', drip_amount='fail', txpow=0, global_string
 
 
 def drip(app, global_string='default'):
+    #pdb.set_trace()
     global_pair = string_keypair(global_string)
     CC_addr = CCaddr_normal(global_pair['pubkey'], app.eval_code)
-    print('MY CC_ADDR', CC_addr)
 
+
+    print(CC_addr)
     vin, vin_tx, vin_amount = find_input(app.chain, [CC_addr], 0, True)
     vin['script']['pubkey'] = global_pair['pubkey']
 
@@ -77,6 +93,7 @@ def drip(app, global_string='default'):
     wifs = (global_pair['wif'],)
 
     myaddr = rpc_wrap(app.chain, 'setpubkey')['address']
+    print('fauc vin', vin)
 
     drip_tx = app.create_tx_pow({
         "name": "faucet.drip",
@@ -85,14 +102,14 @@ def drip(app, global_string='default'):
         ],
         "outputs": [
             {"script": {"pubkey": global_pair['pubkey']}}, # CC change to global
-            {"script": {"address": myaddr}} # faucet drip to arbitary address
+            {"script": {"address": myaddr}, "amount": drip_amount} # faucet drip to arbitary address
         ]
-    }, txpow, wifs, {"TxPoW": txpow, "AmountUserArg": drip_amount})
+    }, txpow, wifs,
+    {"TxPoW": txpow, "AmountUserArg": drip_amount})
     return rpc_success(drip_tx.encode())
-    #    def create_tx_pow(self, spec, txpow, wifs, data={}, vins=[]):
 
 info = {"functions": {"drip": drip, "create": create},
-        "eval": b'ee',
+        "eval": b'ff',
         "schema": schema, # FIXME this seems kind of stupid as we can assume schema dict will always exist, leaving it for now
         "help": {"drip": "pycli faucet drip [global_string]",
                  "create": "pycli faucet create amount_sats drip_amount [txpow] [global_string]"}}
