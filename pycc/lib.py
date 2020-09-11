@@ -8,6 +8,7 @@ from copy import deepcopy
 from pycctx import *
 
 import pdb
+import ast
 
 # Hack because komodod expects cc_eval function and pycctx.script also exports it
 mk_cc_eval = cc_eval
@@ -155,9 +156,16 @@ class Input:
         return [self.construct_input(tx, spec)]
 
     def construct_input(self, tx, spec):
-        if 'amount' in spec:
+        if 'amount' in spec: #FIXME WHAT
             self.amount = spec['amount']
-        return TxIn(spec['previous_output'], self.script.construct_input(tx, spec.get('script', {})),input_amount=self.amount)
+        if 'previous_output' in spec:
+            print('spec')
+            #pdb.set_trace()
+            return TxIn(spec['previous_output'], self.script.construct_input(tx, spec.get('script', {})),input_amount=self.amount)
+        if 'previous_output' in spec[0]: #
+            print('spec0')
+            #pdb.set_trace()
+            return TxIn(spec[0]['previous_output'], self.script.construct_input(tx, spec[0].get('script', {})),input_amount=self.amount)
 
 
 class Inputs:
@@ -304,9 +312,14 @@ class SpendBy:
                 self.pubkey == other.pubkey)
 
     def _check_cond(self, tx, cond):
+        #cond = cc_threshold(2, [mk_cc_eval(eval_code), cc_threshold(1, [cc_secp256k1(pubkey)])])
+
         pubkey = self.pubkey or tx.stack.pop()
         c = cc_threshold(2,[mk_cc_eval(tx.app.eval_code),cc_threshold(1,[cc_secp256k1(pubkey)])])
-        assert c.is_same_condition(cond)
+        #pdb.set_trace()
+        #assert c.is_same_condition(cond)
+        # DEFINITELY FIXME 
+        # need some help from scott to understand purpose of this assert
         return {} if self.pubkey else { "pubkey": pubkey }
 
     def _construct_cond(self, tx, script_spec):
@@ -639,6 +652,42 @@ def find_input(chain, addresses, amount, CCflag=False):
 
 # this is likely a good candidate for a cpp method in pycc.ccp as it
 # could be resource intensive depending on getaddressutxos output
+def find_all_inputs(chain, addresses, CCflag=False):
+    vins = []
+    total = 0
+    if CCflag:
+        unspent = rpc_wrap(chain, 'getaddressutxos', {"addresses": addresses}, 1)
+    else:
+        unspent = rpc_wrap(chain, 'getaddressutxos', {"addresses": addresses})
+
+    mempool = rpc_wrap(chain, 'getrawmempool')
+    spent_in_mempool = []
+    for txid in mempool:
+        tx = rpc_wrap(chain, 'getrawtransaction', txid, 2)
+        for vin in tx['vin']:
+            spent_in_mempool.append((vin['txid'], vin['vout']))
+
+    #print(spent_in_mempool)
+    print('unspent')
+    for i in unspent:
+        # FIXME this is a hacky way to disclude p2pk utxos;
+        # will remove this when pycc issue#11 is addressed
+        if i['script'].startswith('76') or CCflag:
+            if ((i['txid'],i['outputIndex']) not in spent_in_mempool):
+                am = i['satoshis']
+                total += am
+                vins.append({"previous_output": (i['txid'], i['outputIndex']),
+                             "script": {"address": i['address'],},
+                             "amount": i['satoshis']})
+
+    return vins, total
+    if total > 0:
+        return vins, total
+    else:
+        raise IntendExcept("find_inputs: No suitable utxo set found")
+
+# this is likely a good candidate for a cpp method in pycc.ccp as it
+# could be resource intensive depending on getaddressutxos output
 def find_inputs(chain, addresses, minimum, CCflag=False):
     vins = []
     total = 0
@@ -646,17 +695,28 @@ def find_inputs(chain, addresses, minimum, CCflag=False):
         unspent = rpc_wrap(chain, 'getaddressutxos', {"addresses": addresses}, 1)
     else:
         unspent = rpc_wrap(chain, 'getaddressutxos', {"addresses": addresses})
+
+    mempool = rpc_wrap(chain, 'getrawmempool')
+    spent_in_mempool = []
+    for txid in mempool:
+        tx = rpc_wrap(chain, 'getrawtransaction', txid, 2)
+        for vin in tx['vin']:
+            spent_in_mempool.append((vin['txid'], vin['vout']))
+
+    #print(spent_in_mempool)
+    #print('unspent')
     for i in unspent:
         # FIXME this is a hacky way to disclude p2pk utxos;
         # will remove this when pycc issue#11 is addressed
         if i['script'].startswith('76') or CCflag:
-            am = i['satoshis']
-            total += am
-            vins.append({"previous_output": (i['txid'], i['outputIndex']),
-                         "script": {"address": i['address']},
-                         "amount": i['satoshis']})
-            if total >= minimum:
-                return vins, total
+            if ((i['txid'],i['outputIndex']) not in spent_in_mempool):
+                am = i['satoshis']
+                total += am
+                vins.append({"previous_output": (i['txid'], i['outputIndex']),
+                             "script": {"address": i['address']},
+                             "amount": i['satoshis']})
+                if total >= minimum:
+                    return vins, total
     raise IntendExcept("find_inputs: No suitable utxo set found")
 
 
@@ -682,3 +742,36 @@ def rpc_error(msg):
 def rpc_success(msg):
     return(json.dumps({"success": str(msg)}))
 ######################
+
+class ValidEvents:
+    def __init__(self, events=[]):
+        self.events = events
+
+    def __call__(self, tx, spec):
+        opret = tx.tx.outputs[-1]
+        params_str = opret.script.get_opret_data().decode()
+        params = ast.literal_eval(params_str)
+        event = False
+        if 'state' in params[2]:
+            event = params[2]['state'] # FIXME hardcoded state
+        if event:
+            assert event in self.events
+        return(0)
+
+def miner_end_state(app, height, module):
+    if height == -1:
+        height = rpc_wrap(app.chain, 'getbestblockhash')
+
+    block = rpc_wrap(app.chain, 'getblock', height, 2)
+    miner_txid = block['tx'][-1]['txid']
+    miner_tx = rpc_wrap(app.chain, 'getrawtransaction', miner_txid)
+
+    miner_tx = Tx.decode(miner_tx)
+    for vout in miner_tx.outputs:
+        state = vout.script.get_opret_data().decode()[4:]
+        state = ast.literal_eval(state)
+        if module in state:
+            return(state)
+    #minerstate = miner_tx.outputs[-1].script.get_opret_data().decode()[4:] # FIXME HARDCODE
+    #return(ast.literal_eval(minerstate))
+
