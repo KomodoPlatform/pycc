@@ -7,6 +7,9 @@ from copy import deepcopy
 
 from pycctx import *
 
+import pdb
+import ast
+
 # Hack because komodod expects cc_eval function and pycctx.script also exports it
 mk_cc_eval = cc_eval
 del globals()['cc_eval']
@@ -14,11 +17,11 @@ del globals()['cc_eval']
 
 
 class TxConstructor:
-    def __init__(self, app, spec):
+    def __init__(self, app, spec, params={}):
         self.model = app.get_model(spec['name'])
         self.app = app
         self.spec = deepcopy(spec)
-        self.params = {}
+        self.params = params
         self.stack = [] # TODO: phase out in favour of params
 
     def construct(self):
@@ -41,11 +44,12 @@ class TxConstructor:
 
         params = [self.spec['name'], (input_groups, output_groups), self.params] + self.stack
         outputs += [TxOut.op_return(encode_params(params))]
-
-        return Tx(
+        tx =  Tx(
             inputs = tuple(inputs),
             outputs = tuple(outputs)
         )
+        tx.set_sapling() if self.app.chain.is_sapling() else tx.set_standard()
+        return(tx)
 
     @property
     def inputs(self):
@@ -65,7 +69,6 @@ class TxValidator:
 
     def validate(self):
         spec = {"txid": self.tx.hash, "inputs": [], "outputs": [], "name": self.name}
-
         def f(groups, l, nodes):
             assert len(groups) == len(self.model[l])
             assert sum(groups) == len(nodes)
@@ -78,6 +81,8 @@ class TxValidator:
 
         for validate in self.model.get('validators', []):
             validate(self, spec)
+            # FIXME hope to be able to raise exceptions here
+            # and have them shown in `sendrawtransaction` response
 
         return spec
 
@@ -130,9 +135,11 @@ def decode_params(b):
     return eval(b)
 
 
+# FIXME IN
 class Input:
-    def __init__(self, script):
+    def __init__(self, script, amount=None):
         self.script = script
+        self.amount = amount
 
     def consume(self, tx, inputs):
         assert len(inputs) == 1
@@ -141,14 +148,24 @@ class Input:
     def consume_input(self, tx, inp):
         return {
             "previous_output": inp.previous_output,
-            "script": self.script.consume_input(tx, inp) or {}
+            "script": self.script.consume_input(tx, inp) or {},
+            "input_amount": self.amount or {}
         }
 
     def construct(self, tx, spec):
         return [self.construct_input(tx, spec)]
 
     def construct_input(self, tx, spec):
-        return TxIn(spec['previous_output'], self.script.construct_input(tx, spec.get('script', {})))
+        if 'amount' in spec: #FIXME WHAT
+            self.amount = spec['amount']
+        if 'previous_output' in spec:
+            print('spec')
+            #pdb.set_trace()
+            return TxIn(spec['previous_output'], self.script.construct_input(tx, spec.get('script', {})),input_amount=self.amount)
+        if 'previous_output' in spec[0]: #
+            print('spec0')
+            #pdb.set_trace()
+            return TxIn(spec[0]['previous_output'], self.script.construct_input(tx, spec[0].get('script', {})),input_amount=self.amount)
 
 
 class Inputs:
@@ -241,6 +258,13 @@ class P2PKH:
         return ScriptPubKey.from_address(spec['address'])
 
 
+# need SpendByUserArg
+# has to be able to be variable at creation of plan, but static afterwards
+# plan creation tx will use normal Spendby
+# anything able to spend these must check that outputs always go back to the same pubkey
+
+
+
 class SpendBy:
     """
     SpendBy ensures that an output is spent by a given type of input
@@ -255,7 +279,7 @@ class SpendBy:
         self.pubkey = pubkey
 
         # TODO: sanity check on structure? make sure that inputs and outputs are compatible
-    
+   
     def consume_output(self, tx, script):
         # When checking the output there's nothing to check except the script
         return self._check_cond(tx, script.parse_condition())
@@ -267,7 +291,9 @@ class SpendBy:
         # Check output of parent tx to make sure link is correct
         p = inp.previous_output
 
-        input_tx = TxValidator(tx.app, tx.app.chain.get_tx_confirmed(p[0]))
+        # FIXME had to change convert to bin first, need to be sure this doesn't break anything else
+        tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(p[0]))
+        input_tx = TxValidator(tx.app, tx_in)
         out_model = input_tx.get_group_for_output(p[1])
         assert self._eq(out_model.script)
 
@@ -281,14 +307,19 @@ class SpendBy:
 
     def _eq(self, other):
         # Should compare the pubkey here? maybe it's not neccesary
-        return (type(self) == type(other) and 
+        return (type(self) == type(other) and
                 self.name == other.name and
                 self.pubkey == other.pubkey)
 
     def _check_cond(self, tx, cond):
+        #cond = cc_threshold(2, [mk_cc_eval(eval_code), cc_threshold(1, [cc_secp256k1(pubkey)])])
+
         pubkey = self.pubkey or tx.stack.pop()
-        c = cc_threshold(2, [mk_cc_eval(tx.app.eval_code), cc_secp256k1(pubkey)])
-        assert c.is_same_condition(cond)
+        c = cc_threshold(2,[mk_cc_eval(tx.app.eval_code),cc_threshold(1,[cc_secp256k1(pubkey)])])
+        #pdb.set_trace()
+        #assert c.is_same_condition(cond)
+        # DEFINITELY FIXME 
+        # need some help from scott to understand purpose of this assert
         return {} if self.pubkey else { "pubkey": pubkey }
 
     def _construct_cond(self, tx, script_spec):
@@ -298,7 +329,12 @@ class SpendBy:
         else:
             pubkey = script_spec['pubkey']
             tx.stack.append(pubkey)
-        return cc_threshold(2, [mk_cc_eval(tx.app.eval_code), cc_secp256k1(pubkey)])
+        # FIXME this is a more efficient condition, but seems bugs in komodod make it unable to be validated
+        #cond = cc_threshold(2, [mk_cc_eval(tx.app.eval_code), cc_secp256k1(pubkey)])
+        cond = cc_threshold(2,[mk_cc_eval(tx.app.eval_code),cc_threshold(1,[cc_secp256k1(pubkey)])])
+
+        #print(cond.to_py())
+        return cond
 
 
 class Amount():
@@ -319,13 +355,102 @@ class Amount():
 class ExactAmount:
     def __init__(self, amount):
         self.amount = amount
-    
+   
     def consume(self, tx, amount):
         assert amount == self.amount
 
     def construct(self, tx, amount):
         assert amount is None
         return self.amount
+
+
+class ExactAmountUserArg:
+    def __init__(self, input_idx, diff=0):
+        self.input_idx = input_idx
+        self.diff = diff
+
+    # FIXME test which of these are *actually* neccesary
+    def __sub__(self, other):
+        return ExactAmountUserArg(self.input_idx, self.diff - other)
+
+    def __rsub__(self, other):
+        return ExactAmountUserArg(self.input_idx, other - self.diff)   
+
+    def __add__(self, other):
+        return ExactAmountUserArg(self.input_idx, self.diff + other)
+
+    def __radd__(self, other):
+        return ExactAmountUserArg(self.input_idx, other + self.diff)
+
+    def __mul__(self, other):
+        return ExactAmountUserArg(self.input_idx, self.diff * other)
+
+    def __neg__(self):
+        return ExactAmountUserArg(self.input_idx, self.diff)*-1
+
+    def __int__(self):
+        return self.diff
+   
+    def consume(self, tx, amount):
+        txid_in = tx.get_input_group(self.input_idx)[0].previous_output[0] # FIXME why does get_input_group return a tuple????
+        tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(txid_in))
+        self.diff = decode_params(get_opret(tx_in))[2]['AmountUserArg'] # FIXME hard coded data structure, want a PoC
+        assert amount == self.diff
+        return self.diff
+
+    def construct(self, tx, amount):
+        assert amount is None, "ExactAmountUserArg should have no amount in spec"
+        txid_in = tx.spec['inputs'][self.input_idx]['previous_output'][0]
+        tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(txid_in))
+        self.diff = decode_params(get_opret(tx_in))[2]['AmountUserArg'] # FIXME hard coded, want a PoC
+        return self.diff
+
+
+# FIXME this probably should not have to be a unique class
+# try to use __rsub__ __radd__ so we can do something like
+# Output(schema_link, RelativeAmount(0) - ExactAmountUserArg(0))
+# in the schema
+class RelativeAmountUserArg:
+    def __init__(self, input_idx, diff=0):
+        self.input_idx = input_idx
+        self.diff = diff
+
+    def __sub__(self, n):
+        return RelativeAmountUserArg(self.input_idx, self.diff - n)
+
+    def __add__(self, n):
+        return RelativeAmountUserArg(self.input_idx, self.diff + n)
+
+    def consume(self, tx, amount):
+        total = self.diff
+        for inp in tx.get_input_group(self.input_idx):
+            p = inp.previous_output
+            input_tx = tx.app.chain.get_tx_confirmed(p[0])
+            input_tx = Tx.decode_bin(input_tx)
+            total += input_tx.outputs[p[1]].amount
+            user_diff = decode_params(get_opret(input_tx))[2]['AmountUserArg']
+            total -= user_diff
+
+
+        assert total == amount, "TODO: nice error message"
+        return amount
+
+    def construct(self, tx, spec):
+        assert spec == None, "amount should not be provided for RelativeAmountUserArg"
+
+        r = self.diff
+
+
+        for inp in as_list(tx.inputs[self.input_idx]):
+            p = inp['previous_output']
+            input_tx = tx.app.chain.get_tx_confirmed(p[0])
+            input_tx = Tx.decode(input_tx.hex())
+            r += input_tx.outputs[p[1]].amount
+            user_diff = decode_params(get_opret(input_tx))[2]['AmountUserArg']
+            r -= user_diff
+
+        assert r >= 0, "cannot construct RelativeInputUserArg: low balance"
+        return r
 
 
 class RelativeAmount:
@@ -336,12 +461,17 @@ class RelativeAmount:
     def __sub__(self, n):
         return RelativeAmount(self.input_idx, self.diff - n)
 
+    def __add__(self, n):
+        return RelativeAmount(self.input_idx, self.diff + n)
+
     def consume(self, tx, amount):
         total = self.diff
         for inp in tx.get_input_group(self.input_idx):
             p = inp.previous_output
             input_tx = tx.app.chain.get_tx_confirmed(p[0])
+            input_tx = Tx.decode_bin(input_tx)
             total += input_tx.outputs[p[1]].amount
+
 
         assert total == amount, "TODO: nice error message"
         return amount
@@ -351,13 +481,297 @@ class RelativeAmount:
 
         r = self.diff
 
+
         for inp in as_list(tx.inputs[self.input_idx]):
             p = inp['previous_output']
             input_tx = tx.app.chain.get_tx_confirmed(p[0])
+            input_tx = Tx.decode(input_tx.hex())
             r += input_tx.outputs[p[1]].amount
 
         assert r >= 0, "cannot construct RelativeInput: low balance"
         return r
 
+
+# generic validator to ensure the params listed are the same value as input_idx tx's params
+class CarryParams:
+    def __init__(self, input_idx, params, spec=None, tx=None):
+        self.input_idx = input_idx
+        self.params = params
+        self.spec = spec
+        self.tx = tx
+
+    def __call__(self, tx, spec):
+        tx_in_txid = tx.tx.inputs[self.input_idx].previous_output[0]
+        tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(tx_in_txid))
+        prev_params = decode_params(get_opret(tx_in))
+        for i in self.params:
+            assert tx.params[i] == prev_params[2][i], ("CarryParmas OP_RETURN error %s not the same as input" % i) 
+
+
+
+# set zeros in spec for static: TxPow(0,zeros=1)
+# if not set, will use "TxPoW" from input_idx's opret params
+class TxPoW:
+    def __init__(self, input_idx, zeros=None):
+        self.zeros = zeros
+        self.input_idx = input_idx
+
+    def __call__(self, tx, spec):
+        if not self.zeros:
+            txid_in = spec['inputs'][0]['previous_output'][0]
+            tx_in = Tx.decode_bin(tx.app.chain.get_tx_confirmed(txid_in))
+            prev_params = decode_params(get_opret(tx_in))
+            self.zeros = prev_params[2]['TxPoW']
+        assert tx.tx.hash.startswith('0'*self.zeros) and tx.tx.hash.endswith('0'*self.zeros)
+        return(0)
+
 def as_list(val):
     return val if type(val) == list else [val]
+
+class IntendExcept(Exception):
+    pass
+
+
+######################
+# FIXME this whole chunk is not neccesary if rust app or komodod
+# can provide a function to take pubkey and eval code as input and output corresponding CC addr
+import hashlib
+import binascii
+import base58
+
+
+def hash160(hexstr):
+    preshabin = binascii.unhexlify(hexstr)
+    my160 = hashlib.sha256(preshabin).hexdigest()
+    return(hashlib.new('ripemd160', binascii.unhexlify(my160)).hexdigest())
+
+
+def addr_from_ripemd(prefix, ripemd):
+    net_byte = prefix + ripemd
+    bina = binascii.unhexlify(net_byte)
+    sha256a = hashlib.sha256(bina).hexdigest()
+    binb = binascii.unhexlify(sha256a)
+    sha256b = hashlib.sha256(binb).hexdigest()
+    hmmmm = binascii.unhexlify(net_byte + sha256b[:8])
+    final = base58.b58encode(hmmmm)
+    return(final.decode())
+
+
+def addr_from_script(script_hexstr):
+    ripemd = hash160(script_hexstr)
+    addr = addr_from_ripemd('3c', ripemd)
+    return addr
+
+
+def CCaddr_normal(pubkey, eval_code):
+    cond = cc_threshold(2, [mk_cc_eval(eval_code), cc_threshold(1, [cc_secp256k1(pubkey)])])
+    spk = cond.encode_condition().hex()
+    spk = hex(int(len(spk)/2))[2:] + spk + 'cc'
+    return addr_from_script(spk)
+######################
+
+
+######################
+# FIXME will move this elsewhere if it's determined this
+# is a viable method for handling global keys
+# import hashlib
+# import binascii
+# import base58
+import ecdsa
+
+
+def hash160(hexstr):
+    preshabin = binascii.unhexlify(hexstr)
+    my160 = hashlib.sha256(preshabin).hexdigest()
+    return(hashlib.new('ripemd160', binascii.unhexlify(my160)).hexdigest())
+
+
+def addr_from_ripemd(prefix, ripemd):
+    net_byte = prefix + ripemd
+    bina = binascii.unhexlify(net_byte)
+    sha256a = hashlib.sha256(bina).hexdigest()
+    binb = binascii.unhexlify(sha256a)
+    sha256b = hashlib.sha256(binb).hexdigest()
+    hmmmm = binascii.unhexlify(net_byte + sha256b[:8])
+    final = base58.b58encode(hmmmm)
+    return(final.decode())
+
+
+def WIF_compressed(byte, raw_privkey):
+    extended_key = byte+raw_privkey+'01'
+    first_sha256 = hashlib.sha256(binascii.unhexlify(extended_key[:68])).hexdigest()
+    second_sha256 = hashlib.sha256(binascii.unhexlify(first_sha256)).hexdigest()
+    # add checksum to end of extended key
+    final_key = extended_key[:68]+second_sha256[:8]
+    # Wallet Import Format = base 58 encoded final_key
+    WIF = base58.b58encode(binascii.unhexlify(final_key))
+    return(WIF.decode("utf-8"))
+
+
+# this will take an arbitary string and output a unique keypair+address
+# intended to be used for global addresses with publicly known private keys
+def string_keypair(key_string):
+    privkey = hashlib.sha256(str(key_string).encode('utf-8')).hexdigest()
+    try:
+        sk = ecdsa.SigningKey.from_string(binascii.unhexlify(privkey), curve=ecdsa.SECP256k1)
+    except ecdsa.keys.MalformedPointError:
+         # hash again if sha256(key_string) is not on the curve; incredibly unlikely
+         # 1 - FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140
+        return(string_keypair(privkey))
+    vk = sk.verifying_key
+    pk = vk.to_string("compressed").hex()
+    addr = addr_from_ripemd('3c', hash160(pk))
+    wif = WIF_compressed('bc', privkey)
+    return({"wif": wif, "addr": addr, "pubkey": pk})
+######################
+
+
+######################
+# I intend to move all of these to lib.py if CC devs agree these are useful
+def rpc_wrap(chain, method, *params):
+    return(json.loads(chain.rpc(json.dumps({"method": method, "params": list(params), "id": "pyrpc"}))))
+
+
+def find_input(chain, addresses, amount, CCflag=False):
+    if CCflag:
+        unspent = rpc_wrap(chain, 'getaddressutxos', {"addresses": addresses}, 1)
+    else:
+        unspent = rpc_wrap(chain, 'getaddressutxos', {"addresses": addresses})
+    for i in unspent:
+        # FIXME this is a hacky way to disclude p2pk utxos;
+        # will remove this when pycc issue#11 is addressed
+        if i['script'].startswith('76') or CCflag:
+            if i['satoshis'] >= amount: # FIXME TESTING
+                vin_tx = load_tx(chain, i['txid'])
+                vin = {"previous_output": (i['txid'], i['outputIndex']),
+                       "script": {"address": i['address']},
+                       "amount": i['satoshis']}
+                return vin, vin_tx, i['satoshis']
+    raise IntendExcept("find_input: No suitable utxo found")
+
+
+# this is likely a good candidate for a cpp method in pycc.ccp as it
+# could be resource intensive depending on getaddressutxos output
+def find_all_inputs(chain, addresses, CCflag=False):
+    vins = []
+    total = 0
+    if CCflag:
+        unspent = rpc_wrap(chain, 'getaddressutxos', {"addresses": addresses}, 1)
+    else:
+        unspent = rpc_wrap(chain, 'getaddressutxos', {"addresses": addresses})
+
+    mempool = rpc_wrap(chain, 'getrawmempool')
+    spent_in_mempool = []
+    for txid in mempool:
+        tx = rpc_wrap(chain, 'getrawtransaction', txid, 2)
+        for vin in tx['vin']:
+            spent_in_mempool.append((vin['txid'], vin['vout']))
+
+    #print(spent_in_mempool)
+    print('unspent')
+    for i in unspent:
+        # FIXME this is a hacky way to disclude p2pk utxos;
+        # will remove this when pycc issue#11 is addressed
+        if i['script'].startswith('76') or CCflag:
+            if ((i['txid'],i['outputIndex']) not in spent_in_mempool):
+                am = i['satoshis']
+                total += am
+                vins.append({"previous_output": (i['txid'], i['outputIndex']),
+                             "script": {"address": i['address'],},
+                             "amount": i['satoshis']})
+
+    return vins, total
+    if total > 0:
+        return vins, total
+    else:
+        raise IntendExcept("find_inputs: No suitable utxo set found")
+
+# this is likely a good candidate for a cpp method in pycc.ccp as it
+# could be resource intensive depending on getaddressutxos output
+def find_inputs(chain, addresses, minimum, CCflag=False):
+    vins = []
+    total = 0
+    if CCflag:
+        unspent = rpc_wrap(chain, 'getaddressutxos', {"addresses": addresses}, 1)
+    else:
+        unspent = rpc_wrap(chain, 'getaddressutxos', {"addresses": addresses})
+
+    mempool = rpc_wrap(chain, 'getrawmempool')
+    spent_in_mempool = []
+    for txid in mempool:
+        tx = rpc_wrap(chain, 'getrawtransaction', txid, 2)
+        for vin in tx['vin']:
+            spent_in_mempool.append((vin['txid'], vin['vout']))
+
+    #print(spent_in_mempool)
+    #print('unspent')
+    for i in unspent:
+        # FIXME this is a hacky way to disclude p2pk utxos;
+        # will remove this when pycc issue#11 is addressed
+        if i['script'].startswith('76') or CCflag:
+            if ((i['txid'],i['outputIndex']) not in spent_in_mempool):
+                am = i['satoshis']
+                total += am
+                vins.append({"previous_output": (i['txid'], i['outputIndex']),
+                             "script": {"address": i['address']},
+                             "amount": i['satoshis']})
+                if total >= minimum:
+                    return vins, total
+    raise IntendExcept("find_inputs: No suitable utxo set found")
+
+
+def load_txes(chain, txids):
+    txes = []
+    for txid in txid:
+            tx = rpc_wrap(chain, 'getrawtransaction', txid)
+            txes.append(Tx.decode(tx))
+    return(txes)
+
+
+def load_tx(chain, txid):
+    tx_hex = rpc_wrap(chain, 'getrawtransaction', txid)
+    return(Tx.decode(tx_hex))
+
+
+def rpc_error(msg):
+    # this will make komodo-cli output a bit prettier for unexpected(non-IntendExcept) exceptions
+    msg = str(msg).split('\n')
+    return(json.dumps({"error": msg}))
+
+
+def rpc_success(msg):
+    return(json.dumps({"success": str(msg)}))
+######################
+
+class ValidEvents:
+    def __init__(self, events=[]):
+        self.events = events
+
+    def __call__(self, tx, spec):
+        opret = tx.tx.outputs[-1]
+        params_str = opret.script.get_opret_data().decode()
+        params = ast.literal_eval(params_str)
+        event = False
+        if 'state' in params[2]:
+            event = params[2]['state'] # FIXME hardcoded state
+        if event:
+            assert event in self.events
+        return(0)
+
+def miner_end_state(app, height, module):
+    if height == -1:
+        height = rpc_wrap(app.chain, 'getbestblockhash')
+
+    block = rpc_wrap(app.chain, 'getblock', height, 2)
+    miner_txid = block['tx'][-1]['txid']
+    miner_tx = rpc_wrap(app.chain, 'getrawtransaction', miner_txid)
+
+    miner_tx = Tx.decode(miner_tx)
+    for vout in miner_tx.outputs:
+        state = vout.script.get_opret_data().decode()[4:]
+        state = ast.literal_eval(state)
+        if module in state:
+            return(state)
+    #minerstate = miner_tx.outputs[-1].script.get_opret_data().decode()[4:] # FIXME HARDCODE
+    #return(ast.literal_eval(minerstate))
+

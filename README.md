@@ -51,14 +51,49 @@ is required, that is encoded as a list of inputs, so the structure does not chan
 
 ## Setup
 
-Install rust: https://www.rust-lang.org/tools/install
-
+#### clone this repo 
 ```shell
-make pycctx
-virtualenv -p python3 .env
-.env/bin/activate
-pip install -r requirements_test.txt
+git clone https://github.com/alrighttt/pycc-1 pycc
 ```
+
+Install rust: https://www.rust-lang.org/tools/install
+```shell
+rustup toolchain install nightly
+```
+
+#### build pycctx.so
+```shell
+cd ~/pycc
+make pycctx
+```
+
+#### create a new virtual env 
+```shell
+virtualenv -p python3 .env
+```
+
+#### enter virtual env
+```shell
+source .env/bin/activate
+```
+
+#### install
+```shell
+pip3 install -r requirements.txt
+```
+
+
+#### add ~/pycc PATH 
+```shell
+export PYTHONPATH=$PYTHONPATH:~/pycc
+```
+
+#### launch a new chain using https://github.com/alrighttt/komodo/tree/noinput_eval with CONFIGURE_FLAGS="--enable-pycc"
+```shell
+./komodod -ac_name=PYCC -ac_supply=999999 -ac_nk=96,5 -ac_blocktime=10 -testnode=1 -ac_pycc=pycc.active -ac_cc=2
+```
+
+This chain will now redirect ALL CC validation to `~/pycc/pycc/active.py`. This `active.py` will define which pyCC modules are activated and route validation and pycli requests accordingly. 
 
 To run tests:
 
