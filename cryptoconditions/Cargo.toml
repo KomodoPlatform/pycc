@@ -11,7 +11,7 @@ name = "cryptoconditions"
 crate-type = ["rlib", "dylib"]
 
 [dependencies]
-asn1 = { git = "https://github.com/alex/rust-asn1" }
+asn1 = { git = "https://github.com/alex/rust-asn1", branch = "main" }
 libsecp256k1 = "0.2.2"
 simple_asn1 = { git = "https://github.com/ssadler/simple_asn1" }
 num-bigint = "0.2.6"
